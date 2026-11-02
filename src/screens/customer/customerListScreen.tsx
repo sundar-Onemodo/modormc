@@ -56,139 +56,49 @@ export interface CustomerItem {
   contacts: CustomerContact[];
 }
 
+export interface CustomerDetailData {
+  id: number;
+  entity_id?: number | null;
+  plant_id: number;
+  code?: string | null;
+  patron_type?: string[] | null;
+  legal_name: string;
+  email?: string | null;
+  mobile?: string | null;
+  operational_status?: string | null;
+  pan_no?: string | null;
+  gstin?: string | null;
+  aadhar_number?: string | null;
+  status?: boolean;
+  displayed?: boolean;
+  created_at?: string;
+  updated_at?: string;
+  is_system?: boolean;
+  debit_ledger_id?: number | null;
+  credit_ledger_id?: number | null;
+  sales_executive_id?: number | null;
+  contacts?: CustomerContact[];
+}
+
+export interface CustomerDetailResponse {
+  success: boolean;
+  data: {
+    customer: CustomerDetailData;
+    progress?: {
+      batch_count: number;
+      completed_batches: number;
+      committed_m3: number;
+      dispatched_m3: number;
+      delivered_m3: number;
+      remaining_delivery_m3: number;
+    };
+  };
+}
+
 export interface CustomerListScreenProps {
   onBack?: () => void;
 }
 
-// Initial realistic fallback data based on user API
-const SAMPLE_CUSTOMERS: CustomerItem[] = [
-  {
-    id: 13,
-    legal_name: "Default Customer",
-    plant_id: 6,
-    contacts: [],
-  },
-  {
-    id: 24,
-    legal_name: "Duracastt RMC",
-    plant_id: 6,
-    contacts: [
-      {
-        id: 5,
-        plant_id: 6,
-        patron_id: 24,
-        contact_type_id: 1,
-        name: null,
-        email: null,
-        mobile: "6383503603",
-        alt_mobile: null,
-        landline: null,
-        is_primary: true,
-        status: true,
-        displayed: true,
-        created_at: "2026-08-28T07:26:03.000000Z",
-        updated_at: "2026-08-28T07:26:03.000000Z",
-        deleted_at: null,
-        created_by: null,
-        updated_by: null,
-        deleted_by: null,
-      },
-    ],
-  },
-  {
-    id: 25,
-    legal_name: "Kavi",
-    plant_id: 6,
-    contacts: [
-      {
-        id: 6,
-        plant_id: 6,
-        patron_id: 25,
-        contact_type_id: 1,
-        name: "Praba",
-        email: null,
-        mobile: "9150055434",
-        alt_mobile: null,
-        landline: null,
-        is_primary: true,
-        status: true,
-        displayed: true,
-        created_at: "2026-09-19T05:21:43.000000Z",
-        updated_at: "2026-09-19T05:21:43.000000Z",
-        deleted_at: null,
-        created_by: 5,
-        updated_by: 5,
-        deleted_by: null,
-      },
-    ],
-  },
-  {
-    id: 20,
-    legal_name: "Prabakaran",
-    plant_id: 6,
-    contacts: [
-      {
-        id: 8,
-        plant_id: 6,
-        patron_id: 20,
-        contact_type_id: 1,
-        name: "Ragul Sakkaravel",
-        email: null,
-        mobile: "6379664637",
-        alt_mobile: null,
-        landline: null,
-        is_primary: true,
-        status: true,
-        displayed: true,
-        created_at: "2026-10-06T06:37:18.000000Z",
-        updated_at: "2026-10-06T06:37:18.000000Z",
-        deleted_at: null,
-        created_by: 1,
-        updated_by: 1,
-        deleted_by: null,
-      },
-    ],
-  },
-  {
-    id: 16,
-    legal_name: "Ramco Cements",
-    plant_id: 6,
-    contacts: [
-      {
-        id: 1,
-        plant_id: 6,
-        patron_id: 16,
-        contact_type_id: 1,
-        name: null,
-        email: "toloke5081@candaba.com",
-        mobile: null,
-        alt_mobile: null,
-        landline: null,
-        is_primary: true,
-        status: true,
-        displayed: true,
-        created_at: "2026-07-25T04:59:16.000000Z",
-        updated_at: "2026-07-25T04:59:16.000000Z",
-        deleted_at: null,
-        created_by: null,
-        updated_by: null,
-        deleted_by: null,
-      },
-    ],
-  },
-  {
-    id: 26,
-    legal_name: "Senthil",
-    plant_id: 6,
-    contacts: [],
-  },
-  {
-    id: 22,
-    legal_name: "Srinivasan Associates",
-    plant_id: 6,
-    contacts: [],
-  },
-];
 
 // Color palette for customer avatars
 const AVATAR_PALETTE = [
@@ -231,6 +141,7 @@ export async function fetchCustomersApi(
   }
   if (plantId !== null && plantId !== undefined) {
     headers["X-Plant-Id"] = String(plantId);
+    headers["X-Plant-id"] = String(plantId);
   }
 
   const params: Record<string, any> = {
@@ -241,6 +152,28 @@ export async function fetchCustomersApi(
     params,
     headers,
     timeout: 25000,
+  });
+}
+
+export async function fetchCustomerDetailsApi(
+  customerId: number,
+  token: string | null,
+  plantId: number | null | undefined,
+) {
+  const headers: Record<string, string> = {
+    Accept: "application/json",
+  };
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+  if (plantId !== null && plantId !== undefined) {
+    headers["X-Plant-Id"] = String(plantId);
+    headers["X-Plant-id"] = String(plantId);
+  }
+
+  return axios.get(`${baseURL}v1/customers/${customerId}`, {
+    headers,
+    timeout: 20000,
   });
 }
 
@@ -255,7 +188,7 @@ export default function CustomerListScreen({
     (state: RootState) => state.auth,
   );
 
-  const [customers, setCustomers] = useState<CustomerItem[]>(SAMPLE_CUSTOMERS);
+  const [customers, setCustomers] = useState<CustomerItem[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [refreshing, setRefreshing] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -269,6 +202,64 @@ export default function CustomerListScreen({
   // Selected customer for modal
   const [selectedCustomer, setSelectedCustomer] = useState<CustomerItem | null>(
     null,
+  );
+
+  // Customer details cache & loading state (for GST and customer details)
+  const [customerDetailsCache, setCustomerDetailsCache] = useState<
+    Record<number, CustomerDetailData>
+  >({});
+  const [loadingDetail, setLoadingDetail] = useState<boolean>(false);
+  const [detailError, setDetailError] = useState<string | null>(null);
+
+  // Fetch single customer details (GST, code, etc.)
+  const loadCustomerDetail = useCallback(
+    (customerId: number, forceRefresh = false) => {
+      if (!forceRefresh && customerDetailsCache[customerId]) {
+        setLoadingDetail(false);
+        setDetailError(null);
+        return;
+      }
+
+      setLoadingDetail(true);
+      setDetailError(null);
+
+      fetchCustomerDetailsApi(customerId, token, plant_id)
+        .then((response) => {
+          const detail =
+            response.data?.data?.customer ||
+            response.data?.customer ||
+            response.data?.data;
+          if (detail) {
+            setCustomerDetailsCache((prev) => ({
+              ...prev,
+              [customerId]: detail,
+            }));
+          }
+        })
+        .catch((err: any) => {
+          console.log(
+            `Error fetching details for customer ${customerId}:`,
+            err?.message || err,
+          );
+          const msg =
+            err?.response?.data?.message ||
+            err?.message ||
+            "Could not load customer details.";
+          setDetailError(msg);
+        })
+        .finally(() => {
+          setLoadingDetail(false);
+        });
+    },
+    [customerDetailsCache, token, plant_id],
+  );
+
+  const handleOpenCustomerDetails = useCallback(
+    (customer: CustomerItem) => {
+      setSelectedCustomer(customer);
+      loadCustomerDetail(customer.id);
+    },
+    [loadCustomerDetail],
   );
 
   // Status bar locking
@@ -299,9 +290,7 @@ export default function CustomerListScreen({
           list = resData;
         }
 
-        if (list.length > 0) {
-          setCustomers(list);
-        }
+        setCustomers(list);
       })
       .catch((err: any) => {
         if (isCancelled) return;
@@ -332,6 +321,7 @@ export default function CustomerListScreen({
         setLoading(true);
       }
       setErrorMessage(null);
+      setCustomerDetailsCache({});
 
       fetchCustomersApi(token, plant_id)
         .then((response) => {
@@ -345,9 +335,7 @@ export default function CustomerListScreen({
             list = resData;
           }
 
-          if (list.length > 0) {
-            setCustomers(list);
-          }
+          setCustomers(list);
         })
         .catch((err: any) => {
           console.log("Error refreshing customers:", err?.message || err);
@@ -473,7 +461,7 @@ export default function CustomerListScreen({
       <TouchableOpacity
         style={styles.customerCard}
         activeOpacity={0.85}
-        onPress={() => setSelectedCustomer(item)}
+        onPress={() => handleOpenCustomerDetails(item)}
       >
         {/* Card Header: Client Badge & Contacts Count */}
         <View style={styles.cardHeader}>
@@ -520,6 +508,14 @@ export default function CustomerListScreen({
                 {plant_name ? plant_name : "Commercial Client"}
               </Text>
             </View>
+            {customerDetailsCache[item.id]?.gstin ? (
+              <View style={styles.cardGstRow}>
+                <Ionicons name="receipt-outline" size={11} color="#2563EB" />
+                <Text style={styles.cardGstText}>
+                  GST: {customerDetailsCache[item.id].gstin}
+                </Text>
+              </View>
+            ) : null}
           </View>
         </View>
 
@@ -577,7 +573,7 @@ export default function CustomerListScreen({
         <View style={styles.cardActionsRow}>
           <TouchableOpacity
             style={styles.detailsBtn}
-            onPress={() => setSelectedCustomer(item)}
+            onPress={() => handleOpenCustomerDetails(item)}
             activeOpacity={0.7}
           >
             <Ionicons name="information-circle-outline" size={15} color="#0B2A4A" />
@@ -902,12 +898,121 @@ export default function CustomerListScreen({
               style={styles.modalScroll}
               showsVerticalScrollIndicator={false}
             >
+              {/* GST INFORMATION SECTION */}
+              {selectedCustomer && (() => {
+                const currentDetail = customerDetailsCache[selectedCustomer.id];
+                return (
+                  <View style={styles.gstCard}>
+                    <View style={styles.gstCardHeader}>
+                      <View style={styles.gstIconBox}>
+                        <MaterialCommunityIcons
+                          name="file-document-outline"
+                          size={19}
+                          color="#2563EB"
+                        />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.gstCardLabel}>GST NUMBER / GSTIN</Text>
+                        {loadingDetail && !currentDetail ? (
+                          <View style={styles.gstLoadingRow}>
+                            <ActivityIndicator size="small" color="#2563EB" />
+                            <Text style={styles.gstLoadingText}>
+                              Fetching customer GST details...
+                            </Text>
+                          </View>
+                        ) : (
+                          <View style={styles.gstValueRow}>
+                            <Text
+                              style={[
+                                styles.gstValueText,
+                                (!currentDetail?.gstin ||
+                                  currentDetail?.gstin === "0") &&
+                                  styles.gstValueMuted,
+                              ]}
+                              selectable={true}
+                            >
+                              {currentDetail?.gstin && currentDetail.gstin !== "0"
+                                ? currentDetail.gstin
+                                : currentDetail?.gstin === "0"
+                                  ? "0 (Unregistered / Non-GST)"
+                                  : detailError
+                                    ? "Could not load GST"
+                                    : "Not Provided"}
+                            </Text>
+                            {currentDetail?.gstin && currentDetail.gstin !== "0" ? (
+                              <View style={styles.gstActiveBadge}>
+                                <Ionicons
+                                  name="checkmark-circle"
+                                  size={12}
+                                  color="#059669"
+                                />
+                                <Text style={styles.gstActiveBadgeText}>
+                                  Registered
+                                </Text>
+                              </View>
+                            ) : currentDetail?.gstin === "0" ? (
+                              <View style={styles.gstUnregisteredBadge}>
+                                <Text style={styles.gstUnregisteredBadgeText}>
+                                  Unregistered
+                                </Text>
+                              </View>
+                            ) : null}
+                          </View>
+                        )}
+                      </View>
+                    </View>
+
+
+
+                    {/* Retry on error */}
+                    {detailError && !currentDetail && (
+                      <View style={styles.gstErrorRow}>
+                        <Ionicons
+                          name="alert-circle-outline"
+                          size={14}
+                          color="#DC2626"
+                        />
+                        <Text style={styles.gstErrorText}>
+                          Could not fetch customer details.
+                        </Text>
+                        <TouchableOpacity
+                          onPress={() =>
+                            loadCustomerDetail(selectedCustomer.id, true)
+                          }
+                          style={styles.gstRetryBtn}
+                        >
+                          <Text style={styles.gstRetryText}>Retry</Text>
+                        </TouchableOpacity>
+                      </View>
+                    )}
+                  </View>
+                );
+              })()}
+
               <Text style={styles.modalSectionTitle}>
-                REGISTERED CONTACT PERSONS ({selectedCustomer?.contacts.length || 0})
+                REGISTERED CONTACT PERSONS (
+                  {selectedCustomer &&
+                  customerDetailsCache[selectedCustomer.id]?.contacts &&
+                  customerDetailsCache[selectedCustomer.id].contacts!.length > 0
+                    ? customerDetailsCache[selectedCustomer.id].contacts!.length
+                    : selectedCustomer?.contacts.length || 0}
+                )
               </Text>
 
-              {selectedCustomer?.contacts && selectedCustomer.contacts.length > 0 ? (
-                selectedCustomer.contacts.map((contact, idx) => (
+              {(
+                (selectedCustomer &&
+                  customerDetailsCache[selectedCustomer.id]?.contacts &&
+                  customerDetailsCache[selectedCustomer.id].contacts!.length > 0
+                    ? customerDetailsCache[selectedCustomer.id].contacts
+                    : selectedCustomer?.contacts) || []
+              ).length > 0 ? (
+                (
+                  (selectedCustomer &&
+                    customerDetailsCache[selectedCustomer.id]?.contacts &&
+                    customerDetailsCache[selectedCustomer.id].contacts!.length > 0
+                      ? customerDetailsCache[selectedCustomer.id].contacts
+                      : selectedCustomer?.contacts) || []
+                ).map((contact, idx) => (
                   <View key={contact.id || idx} style={styles.modalContactCard}>
                     <View style={styles.modalContactTop}>
                       <View style={styles.modalContactNameRow}>
@@ -945,7 +1050,7 @@ export default function CustomerListScreen({
                             onPress={() =>
                               handleWhatsApp(
                                 contact.mobile!,
-                                selectedCustomer.legal_name,
+                                selectedCustomer?.legal_name || "Client",
                               )
                             }
                             activeOpacity={0.7}
@@ -971,7 +1076,10 @@ export default function CustomerListScreen({
                         <TouchableOpacity
                           style={styles.miniEmailBtn}
                           onPress={() =>
-                            handleEmail(contact.email!, selectedCustomer.legal_name)
+                            handleEmail(
+                              contact.email!,
+                              selectedCustomer?.legal_name || "Client",
+                            )
                           }
                           activeOpacity={0.7}
                         >
@@ -1741,5 +1849,137 @@ const styles = StyleSheet.create({
     color: "#FFFFFF",
     fontSize: 13,
     fontWeight: "700",
+  },
+
+  // GST Card in Modal
+  gstCard: {
+    backgroundColor: "#F8FAFC",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    padding: 12,
+    marginBottom: 16,
+  },
+  gstCardHeader: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+  },
+  gstIconBox: {
+    width: 36,
+    height: 36,
+    borderRadius: 8,
+    backgroundColor: "#EFF6FF",
+    borderWidth: 1,
+    borderColor: "#DBEAFE",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  gstCardLabel: {
+    fontSize: 10,
+    fontWeight: "800",
+    color: "#64748B",
+    letterSpacing: 0.6,
+    marginBottom: 2,
+  },
+  gstLoadingRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginTop: 3,
+  },
+  gstLoadingText: {
+    fontSize: 12,
+    color: "#64748B",
+  },
+  gstValueRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexWrap: "wrap",
+    gap: 8,
+    marginTop: 2,
+  },
+  gstValueText: {
+    fontSize: 14,
+    fontWeight: "800",
+    color: "#0F172A",
+    letterSpacing: 0.3,
+  },
+  gstValueMuted: {
+    color: "#64748B",
+    fontWeight: "600",
+  },
+  gstActiveBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#ECFDF5",
+    borderWidth: 1,
+    borderColor: "#A7F3D0",
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 6,
+    gap: 4,
+  },
+  gstActiveBadgeText: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: "#047857",
+  },
+  gstUnregisteredBadge: {
+    backgroundColor: "#FEF3C7",
+    borderWidth: 1,
+    borderColor: "#FDE68A",
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  gstUnregisteredBadgeText: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: "#B45309",
+  },
+  gstErrorRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FEF2F2",
+    borderRadius: 8,
+    padding: 8,
+    marginTop: 8,
+    gap: 6,
+  },
+  gstErrorText: {
+    flex: 1,
+    fontSize: 11,
+    color: "#991B1B",
+  },
+  gstRetryBtn: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  gstRetryText: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#DC2626",
+    textDecorationLine: "underline",
+  },
+
+  // Customer Card GST tag
+  cardGstRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#EFF6FF",
+    borderWidth: 1,
+    borderColor: "#DBEAFE",
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 6,
+    gap: 4,
+    marginTop: 4,
+    alignSelf: "flex-start",
+  },
+  cardGstText: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#1D4ED8",
   },
 });

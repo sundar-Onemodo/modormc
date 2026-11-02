@@ -8,7 +8,6 @@ import {
   Alert,
   FlatList,
   Linking,
-  Modal,
   RefreshControl,
   ScrollView,
   StatusBar,
@@ -63,89 +62,18 @@ export interface LeadItem {
   updated_by?: number;
   deleted_at?: string | null;
   deleted_by?: number | null;
+  mix_design_id?: number | null;
+  mix_design?: {
+    id?: number;
+    name?: string;
+    design_name?: string;
+    code?: string;
+    design_code?: string;
+    [key: string]: any;
+  } | string | null;
   next_follow_up?: string | null;
   owner?: LeadOwner | null;
 }
-
-// Initial realistic fallback data matching user's exact API schema
-const SAMPLE_LEADS: LeadItem[] = [
-  {
-    id: 1,
-    plant_id: 6,
-    lead_number: "LD/2026/00001",
-    enquiry_date: "2026-10-15",
-    contact_name: "Lughuvg",
-    company_name: "Uhuhuh Enterprises",
-    phone: "4894949844",
-    email: "contact@uhuhuh.com",
-    address: "Sdcsfcsdfc Industrial Area",
-    source: "Referral",
-    status: "New",
-    priority: "Medium",
-    assigned_to: 5,
-    project_name: "Kjsabdaskjdb Commercial Center",
-    requirement: "M20 MP",
-    estimated_quantity: "5.000",
-    delivery_location: "Ssdcfdscfsdcf, Site Gate #2",
-    expected_value: "50000.00",
-    expected_purchase_date: "2026-10-16",
-    remarks: "Requires timely morning dispatch with transit mixer.",
-    lost_reason: null,
-    customer_id: null,
-    converted_at: null,
-    created_at: "2026-10-15T04:13:47.000000Z",
-    created_by: 1,
-    updated_at: "2026-10-15T04:13:47.000000Z",
-    updated_by: 1,
-    deleted_at: null,
-    deleted_by: null,
-    next_follow_up: null,
-    owner: {
-      id: 5,
-      username: "Testing Account",
-      profile_photo_url:
-        "https://ui-avatars.com/api/?name=Testing+Account&color=7F9CF5&background=EBF4FF",
-    },
-  },
-  {
-    id: 2,
-    plant_id: 6,
-    lead_number: "LD/2026/00002",
-    enquiry_date: "2026-10-14",
-    contact_name: "Vikram Mehta",
-    company_name: "Skyline Infra Builders",
-    phone: "+91 98450 12345",
-    email: "vikram@skylineinfra.com",
-    address: "Plot 42, Electronic City Phase 1",
-    source: "Direct Inbound",
-    status: "Contacted",
-    priority: "High",
-    assigned_to: 5,
-    project_name: "Skyline Gateway Tower B",
-    requirement: "M35 Pumpable",
-    estimated_quantity: "450.000",
-    delivery_location: "Hosur Main Road, Bengaluru",
-    expected_value: "1850000.00",
-    expected_purchase_date: "2026-10-22",
-    remarks: "Requires boom pump 36m for 4th floor slab casting.",
-    lost_reason: null,
-    customer_id: null,
-    converted_at: null,
-    created_at: "2026-10-14T08:20:00.000000Z",
-    created_by: 1,
-    updated_at: "2026-10-14T08:20:00.000000Z",
-    updated_by: 1,
-    deleted_at: null,
-    deleted_by: null,
-    next_follow_up: null,
-    owner: {
-      id: 5,
-      username: "Testing Account",
-      profile_photo_url:
-        "https://ui-avatars.com/api/?name=Testing+Account&color=7F9CF5&background=EBF4FF",
-    },
-  },
-];
 
 // ==========================================
 // API HELPER
@@ -241,6 +169,49 @@ function formatDateDisplay(dateStr?: string | null): string {
   }
 }
 
+function getLeadMixDesignDisplayName(
+  item: LeadItem,
+  cachedMixDesigns?: any[],
+): string {
+  if (item.mix_design) {
+    if (typeof item.mix_design === "object") {
+      const name =
+        item.mix_design.design_name ||
+        item.mix_design.name ||
+        item.mix_design.code ||
+        item.mix_design.design_code;
+      if (name) return String(name);
+    } else if (typeof item.mix_design === "string" && item.mix_design.trim()) {
+      return item.mix_design.trim();
+    }
+  }
+
+  if (item.mix_design_id && cachedMixDesigns && cachedMixDesigns.length > 0) {
+    const found = cachedMixDesigns.find(
+      (m: any) => Number(m.id) === Number(item.mix_design_id),
+    );
+    if (found) {
+      return (
+        found.design_name ||
+        found.name ||
+        found.code ||
+        `Mix #${item.mix_design_id}`
+      );
+    }
+  }
+
+  if (item.mix_design_id) {
+    return `Mix #${item.mix_design_id}`;
+  }
+
+  // Fallback if legacy lead stored mix design name in requirement (e.g. "M20 MP")
+  if (item.requirement && isNaN(Number(item.requirement))) {
+    return item.requirement;
+  }
+
+  return "Standard Mix";
+}
+
 function getPriorityBadge(priority: string) {
   const p = (priority || "").toLowerCase();
   switch (p) {
@@ -287,6 +258,9 @@ function getStatusBadge(status: string) {
       return { bg: "#FEF3C7", text: "#B45309", border: "#FDE68A" };
     case "qualified":
     case "won":
+      return { bg: "#DCFCE7", text: "#15803D", border: "#86EFAC" };
+    case "approved":
+      return { bg: "#E0F2FE", text: "#0369A1", border: "#BAE6FD" };
     case "converted":
       return { bg: "#DCFCE7", text: "#15803D", border: "#86EFAC" };
     case "lost":
@@ -312,7 +286,7 @@ export default function LeadsScreen() {
     (state: RootState) => state.quotation?.mixDesigns,
   );
 
-  const [leads, setLeads] = useState<LeadItem[]>(SAMPLE_LEADS);
+  const [leads, setLeads] = useState<LeadItem[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [refreshing, setRefreshing] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -350,7 +324,6 @@ export default function LeadsScreen() {
           err?.message ||
           "Could not connect to leads server.";
         setErrorMessage(errMsg);
-        setLeads((prev) => (prev.length > 0 ? prev : SAMPLE_LEADS));
       })
       .finally(() => {
         if (!isCancelled) {
@@ -396,7 +369,6 @@ export default function LeadsScreen() {
             err?.message ||
             "Could not connect to leads server.";
           setErrorMessage(errMsg);
-          setLeads((prev) => (prev.length > 0 ? prev : SAMPLE_LEADS));
         })
         .finally(() => {
           setLoading(false);
@@ -449,121 +421,6 @@ export default function LeadsScreen() {
     });
   };
 
-  // Quick Status Picker State
-  const [selectedLeadForStatus, setSelectedLeadForStatus] =
-    useState<LeadItem | null>(null);
-  const [statusPickerVisible, setStatusPickerVisible] =
-    useState<boolean>(false);
-  const [updatingStatusId, setUpdatingStatusId] = useState<number | null>(null);
-
-  const handleOpenStatusPicker = (lead: LeadItem) => {
-    setSelectedLeadForStatus(lead);
-    setStatusPickerVisible(true);
-  };
-
-  const handleSelectStatus = async (newStatus: string) => {
-    if (!selectedLeadForStatus) return;
-    const targetLead = selectedLeadForStatus;
-    setStatusPickerVisible(false);
-
-    if (targetLead.status?.toLowerCase() === newStatus.toLowerCase()) return;
-
-    setUpdatingStatusId(targetLead.id);
-
-    const headers: Record<string, string> = {
-      Accept: "application/json",
-      "Content-Type": "application/json",
-    };
-
-    if (token) {
-      const cleanToken = token.trim();
-      headers["Authorization"] = cleanToken.startsWith("Bearer ")
-        ? cleanToken
-        : `Bearer ${cleanToken}`;
-    }
-
-    if (plant_id !== null && plant_id !== undefined) {
-      headers["X-Plant-Id"] = String(plant_id);
-    }
-
-    // Resolve requirement mix design id as a string
-    let reqToSend = "6";
-    const rawReq = targetLead.requirement;
-    if (typeof rawReq === "number") {
-      reqToSend = String(rawReq);
-    } else if (rawReq && !isNaN(parseInt(String(rawReq), 10))) {
-      reqToSend = String(parseInt(String(rawReq), 10));
-    } else if (rawReq) {
-      const rawStr = String(rawReq).toLowerCase().trim();
-      const listToSearch =
-        cachedMixDesigns && cachedMixDesigns.length > 0 ? cachedMixDesigns : [];
-      const found = listToSearch.find(
-        (m: any) =>
-          String(m.id) === rawStr ||
-          (m.design_name || "").toLowerCase().trim() === rawStr ||
-          (m.name || "").toLowerCase().trim() === rawStr,
-      );
-      if (found) {
-        reqToSend = String(found.id);
-      } else {
-        reqToSend = String(rawReq);
-      }
-    }
-
-    const resolvedAddress =
-      targetLead.address || targetLead.delivery_location || "";
-    const rawSource = (targetLead.source || "Referral").toLowerCase();
-    const sourceToSend =
-      rawSource === "referal" || rawSource === "referral"
-        ? "Referral"
-        : rawSource === "orther" || rawSource === "other"
-          ? "Other"
-          : targetLead.source || "Referral";
-
-    const payload = {
-      contact_name: targetLead.contact_name,
-      company_name: targetLead.company_name || null,
-      phone: targetLead.phone,
-      email: targetLead.email || null,
-      enquiry_date: targetLead.enquiry_date,
-      source: sourceToSend,
-      status: newStatus,
-      priority: targetLead.priority || "Medium",
-      requirement: reqToSend,
-      estimated_quantity: parseFloat(String(targetLead.estimated_quantity || 0)),
-      expected_value: parseFloat(String(targetLead.expected_value || 0)),
-      expected_purchase_date: targetLead.expected_purchase_date || null,
-      remarks: targetLead.remarks || null,
-      delivery_location: targetLead.delivery_location,
-      address: resolvedAddress,
-      addrress: resolvedAddress,
-      project_name: targetLead.project_name,
-    };
-
-    try {
-      await axios.put(`${baseURL}v1/leads/${targetLead.id}`, payload, {
-        headers,
-        params: { lead: targetLead.id },
-        timeout: 20000,
-      });
-
-      // Update particular card in leads state
-      setLeads((prev) =>
-        prev.map((l) =>
-          l.id === targetLead.id ? { ...l, status: newStatus } : l,
-        ),
-      );
-    } catch (err: any) {
-      console.warn("Status update note:", err?.message || err);
-      Alert.alert(
-        "Update Notice",
-        err?.response?.data?.message || "Could not update status on server.",
-      );
-    } finally {
-      setUpdatingStatusId(null);
-    }
-  };
-
   // Full Edit Lead Action (navigates to showeditlead)
   const handleNavigateToEditLead = (id: number) => {
     router.push({
@@ -606,6 +463,12 @@ export default function LeadsScreen() {
         const matchesRequirement = (lead.requirement || "")
           .toLowerCase()
           .includes(query);
+        const matchesMixDesign = getLeadMixDesignDisplayName(
+          lead,
+          cachedMixDesigns,
+        )
+          .toLowerCase()
+          .includes(query);
         const matchesLocation = (lead.delivery_location || "")
           .toLowerCase()
           .includes(query);
@@ -617,12 +480,13 @@ export default function LeadsScreen() {
           matchesNumber ||
           matchesPhone ||
           matchesRequirement ||
+          matchesMixDesign ||
           matchesLocation
         );
       }
       return true;
     });
-  }, [leads, activeStatusFilter, searchQuery]);
+  }, [leads, activeStatusFilter, searchQuery, cachedMixDesigns]);
 
   // Aggregate KPI stats
   const totalPipelineValue = useMemo(() => {
@@ -647,12 +511,19 @@ export default function LeadsScreen() {
     "Contacted",
     "Qualified",
     "Unqualified",
+    "Approved",
+    "Converted",
   ];
 
   // Render individual Lead Card
   const renderLeadCard = ({ item }: { item: LeadItem }) => {
     const priorityStyle = getPriorityBadge(item.priority);
     const statusStyle = getStatusBadge(item.status);
+    const statusLower = (item.status || "").toLowerCase().trim();
+    const canEdit =
+      statusLower === "new" ||
+      statusLower === "contacted" ||
+      statusLower === "unqualified";
 
     return (
       <View style={styles.leadCard}>
@@ -691,8 +562,8 @@ export default function LeadsScreen() {
               </Text>
             </View>
 
-            {/* Status Dropdown Badge */}
-            <TouchableOpacity
+            {/* Status Badge (Read-only) */}
+            <View
               style={[
                 styles.statusBadge,
                 {
@@ -700,28 +571,14 @@ export default function LeadsScreen() {
                   borderColor: statusStyle.border,
                 },
               ]}
-              onPress={() => handleOpenStatusPicker(item)}
-              activeOpacity={0.7}
-              disabled={updatingStatusId === item.id}
             >
-              {updatingStatusId === item.id ? (
-                <ActivityIndicator size="small" color={statusStyle.text} />
-              ) : (
-                <>
-                  <Text
-                    style={[styles.statusText, { color: statusStyle.text }]}
-                    numberOfLines={1}
-                  >
-                    {item.status || "New"}
-                  </Text>
-                  <Ionicons
-                    name="chevron-down"
-                    size={11}
-                    color={statusStyle.text}
-                  />
-                </>
-              )}
-            </TouchableOpacity>
+              <Text
+                style={[styles.statusText, { color: statusStyle.text }]}
+                numberOfLines={1}
+              >
+                {item.status || "New"}
+              </Text>
+            </View>
           </View>
         </View>
 
@@ -747,11 +604,25 @@ export default function LeadsScreen() {
               {item.company_name ? ` · ${item.company_name}` : ""}
             </Text>
           </View>
+
+          {/* Requirement snippet if present and not just an ID */}
+          {item.requirement && isNaN(Number(item.requirement)) ? (
+            <View style={styles.requirementRow}>
+              <MaterialCommunityIcons
+                name="clipboard-text-outline"
+                size={13}
+                color="#2563EB"
+              />
+              <Text style={styles.requirementText} numberOfLines={1}>
+                Req: <Text style={styles.requirementTextVal}>{item.requirement}</Text>
+              </Text>
+            </View>
+          ) : null}
         </View>
 
-        {/* Core Specs Grid: Requirement, Estimated Qty, Expected Value */}
+        {/* Core Specs Grid: Mix Design, Estimated Qty, Expected Value */}
         <View style={styles.specBox}>
-          {/* Requirement */}
+          {/* Mix Design */}
           <View style={styles.specCol}>
             <View style={styles.specHeaderRow}>
               <MaterialCommunityIcons
@@ -759,10 +630,10 @@ export default function LeadsScreen() {
                 size={13}
                 color="#64748B"
               />
-              <Text style={styles.specLabel}>REQUIREMENT</Text>
+              <Text style={styles.specLabel}>MIX DESIGN</Text>
             </View>
             <Text style={styles.specValue} numberOfLines={1}>
-              {item.requirement || "Standard Mix"}
+              {getLeadMixDesignDisplayName(item, cachedMixDesigns)}
             </Text>
           </View>
 
@@ -893,14 +764,16 @@ export default function LeadsScreen() {
           </View>
 
           <View style={styles.actionButtonsGroup}>
-            <TouchableOpacity
-              style={styles.actionEditBtn}
-              onPress={() => handleNavigateToEditLead(item.id)}
-              activeOpacity={0.7}
-            >
-              <Ionicons name="create-outline" size={14} color="#0B2A4A" />
-              <Text style={styles.actionEditText}>Edit</Text>
-            </TouchableOpacity>
+            {canEdit && (
+              <TouchableOpacity
+                style={styles.actionEditBtn}
+                onPress={() => handleNavigateToEditLead(item.id)}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="create-outline" size={14} color="#0B2A4A" />
+                <Text style={styles.actionEditText}>Edit</Text>
+              </TouchableOpacity>
+            )}
 
             {item.email ? (
               <TouchableOpacity
@@ -1098,89 +971,6 @@ export default function LeadsScreen() {
         <Ionicons name="add" size={24} color="#FFFFFF" />
         <Text style={styles.fabText}>Add Lead</Text>
       </TouchableOpacity>
-
-      {/* QUICK STATUS PICKER MODAL */}
-      <Modal
-        visible={statusPickerVisible}
-        transparent={true}
-        animationType="slide"
-        onRequestClose={() => setStatusPickerVisible(false)}
-      >
-        <View style={styles.statusModalOverlay}>
-          <View style={styles.statusModalContent}>
-            <View style={styles.statusModalHeader}>
-              <View>
-                <Text style={styles.statusModalTitle}>Update Lead Status</Text>
-                <Text style={styles.statusModalSubtitle}>
-                  {selectedLeadForStatus?.lead_number} ·{" "}
-                  {selectedLeadForStatus?.project_name}
-                </Text>
-              </View>
-              <TouchableOpacity
-                style={styles.statusModalCloseBtn}
-                onPress={() => setStatusPickerVisible(false)}
-              >
-                <Ionicons name="close" size={20} color="#64748B" />
-              </TouchableOpacity>
-            </View>
-
-            <View style={styles.statusOptionsList}>
-              {[
-                { label: "New", value: "New", color: "#2563EB" },
-                { label: "Contacted", value: "Contacted", color: "#7C3AED" },
-                { label: "Qualified", value: "Qualified", color: "#059669" },
-                {
-                  label: "Unqualified",
-                  value: "Unqualified",
-                  color: "#DC2626",
-                },
-              ].map((opt) => {
-                const isSelected =
-                  selectedLeadForStatus?.status?.toLowerCase() ===
-                  opt.value.toLowerCase();
-                return (
-                  <TouchableOpacity
-                    key={opt.value}
-                    style={[
-                      styles.statusOptionItem,
-                      isSelected && styles.statusOptionItemSelected,
-                    ]}
-                    onPress={() => handleSelectStatus(opt.value)}
-                    activeOpacity={0.7}
-                  >
-                    <View style={styles.statusOptionLeft}>
-                      <View
-                        style={[
-                          styles.statusOptionDot,
-                          { backgroundColor: opt.color },
-                        ]}
-                      />
-                      <Text
-                        style={[
-                          styles.statusOptionLabel,
-                          isSelected && {
-                            color: opt.color,
-                            fontWeight: "800",
-                          },
-                        ]}
-                      >
-                        {opt.label}
-                      </Text>
-                    </View>
-                    {isSelected && (
-                      <Ionicons
-                        name="checkmark-circle"
-                        size={18}
-                        color={opt.color}
-                      />
-                    )}
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-          </View>
-        </View>
-      </Modal>
     </SafeAreaView>
   );
 }
@@ -1499,6 +1289,21 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: "#334155",
   },
+  requirementRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    marginTop: 4,
+  },
+  requirementText: {
+    fontSize: 11,
+    color: "#64748B",
+    fontWeight: "500",
+  },
+  requirementTextVal: {
+    color: "#1E293B",
+    fontWeight: "600",
+  },
 
   // Core Concrete Specs Grid
   specBox: {
@@ -1616,6 +1421,58 @@ const styles = StyleSheet.create({
     color: "#64748B",
     fontStyle: "italic",
     textAlign: "right",
+  },
+
+  // Create Quotation Button on Qualified Lead Cards
+  cardCreateQuotationBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: "#059669",
+    borderRadius: 8,
+    paddingVertical: 9,
+    paddingHorizontal: 12,
+    marginBottom: 8,
+    shadowColor: "#059669",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  cardCreateQuotationBtnLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 9,
+    flex: 1,
+  },
+  cardCreateQuotationIconBg: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: "rgba(255, 255, 255, 0.2)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  cardCreateQuotationBtnTitle: {
+    fontSize: 13,
+    fontWeight: "800",
+    color: "#FFFFFF",
+    letterSpacing: 0.2,
+  },
+  cardCreateQuotationBtnSubtitle: {
+    fontSize: 10,
+    fontWeight: "500",
+    color: "#DCFCE7",
+    marginTop: 1,
+  },
+  cardCreateQuotationBtnArrow: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: "rgba(255, 255, 255, 0.2)",
+    justifyContent: "center",
+    alignItems: "center",
+    marginLeft: 8,
   },
 
   // Card Footer Actions

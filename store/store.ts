@@ -11,17 +11,19 @@ import {
   REHYDRATE,
 } from "redux-persist";
 import authReducer from "./authSice";
+import dropdownReducer from "./dropdownSlice";
 import quotationReducer from "./quotationSlice";
 
 const rootReducer = combineReducers({
   auth: authReducer,
   quotation: quotationReducer,
+  dropdowns: dropdownReducer,
 });
 
 const persistConfig = {
   key: "root",
   storage: AsyncStorage,
-  whitelist: ["auth", "quotation"],
+  whitelist: ["auth", "quotation", "dropdowns"],
 };
 
 const persistedReducer = persistReducer(persistConfig, rootReducer);

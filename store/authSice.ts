@@ -12,14 +12,16 @@ export interface RmcUser {
   id: number;
   name: string;
   email: string;
-  personnel_id: number;
+  personnel_id: number | null;
   mobile: string;
 }
 
 export interface RmcAuthState {
   user: RmcUser | null;
+  user_id: number | null;
   token: string | null;
   token_type: string | null;
+  expires_at?: string | null;
   plants: PlantInfo[];
   plant_id: number | null;
   plant_name: string | null;
@@ -30,8 +32,10 @@ export interface RmcAuthState {
 
 const initialState: RmcAuthState = {
   user: null,
+  user_id: null,
   token: null,
   token_type: null,
+  expires_at: null,
   plants: [],
   plant_id: null,
   plant_name: null,
@@ -90,8 +94,10 @@ const authSlice = createSlice({
   reducers: {
     resetRmcAuth: (state) => {
       state.user = null;
+      state.user_id = null;
       state.token = null;
       state.token_type = null;
+      state.expires_at = null;
       state.plants = [];
       state.plant_id = null;
       state.plant_name = null;
@@ -120,8 +126,10 @@ const authSlice = createSlice({
       const userData = action.payload;
       if (userData) {
         state.user = userData.user || null;
+        state.user_id = userData.user?.id || null;
         state.token = userData.token || null;
         state.token_type = userData.token_type || null;
+        state.expires_at = userData.expires_at || null;
 
         const lastPlantId = state.plant_id;
         const plants: PlantInfo[] =
@@ -147,6 +155,9 @@ const authSlice = createSlice({
             action.payload.username || action.payload.name || state.user.name,
         };
         state.user = updateUser;
+        if (updateUser.id !== undefined && updateUser.id !== null) {
+          state.user_id = updateUser.id;
+        }
         AsyncStorage.getItem("user_rmc")
           .then((stored) => {
             if (stored) {
@@ -172,8 +183,10 @@ const authSlice = createSlice({
         state.isError = false;
         state.errorMessage = "";
         state.user = action.payload.user;
+        state.user_id = action.payload?.user?.id || null;
         state.token = action.payload.token;
         state.token_type = action.payload.token_type;
+        state.expires_at = action.payload.expires_at || null;
 
         const lastPlantId = state.plant_id;
         const plants: PlantInfo[] =

@@ -20,6 +20,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useDispatch, useSelector } from "react-redux";
 import { baseURL } from "../../../baseurl/baseURL";
+import { selectPumpTypes } from "../../../store/dropdownSlice";
 import {
   CustomerDropdownItem,
   setCustomers,
@@ -29,12 +30,11 @@ import {
   setSites,
   setTaxes,
   SiteDropdownItem,
+  calculateLineItemTotals,
+  calculateQuotationTotals,
+  LineItemCalculationResult,
 } from "../../../store/quotationSlice";
 import { RootState } from "../../../store/store";
-import {
-  calculateLineItemTotals,
-  LineItemCalculationResult,
-} from "./quotationCalculation";
 
 // ==========================================
 // FORM LINE ITEM INTERFACE
@@ -49,6 +49,8 @@ export interface FormLineItem {
   tax_id: number | null;
   tax_name: string;
   tax_rate: number;
+  concrete_pump?: string | null;
+  pump_rate?: string;
   calculation: LineItemCalculationResult;
 }
 
@@ -110,6 +112,17 @@ const formatDisplayDate = (dateStr: string) => {
   }
 };
 
+const formatAmountWithDecimals = (
+  val: number | string | undefined | null,
+): string => {
+  const num = typeof val === "number" ? val : parseFloat(String(val || 0));
+  if (isNaN(num)) return "0.00";
+  return num.toLocaleString("en-IN", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+};
+
 // ==========================================
 // MAIN COMPONENT: CREATE QUOTATION SCREEN
 // ==========================================
@@ -158,9 +171,27 @@ export default function EditQuotationScreen({
     getFutureDateString(15),
   );
   const [isTaxInclusive, setIsTaxInclusive] = useState<boolean>(false);
+  const [adjustment, setAdjustment] = useState<string>("0");
   const [notes, setNotes] = useState<string>(
     "Delivery subject to schedule confirmation",
   );
+
+  const reduxPumpTypes =
+    useSelector(selectPumpTypes) ?? [
+      "direct_pour",
+      "boom_pump",
+      "line_pump",
+      "crane_bucket",
+      "stationary_pump",
+    ];
+
+  const formatPumpLabel = (val?: string | null) => {
+    if (!val) return "";
+    return val
+      .split("_")
+      .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+      .join(" ");
+  };
 
   useFocusEffect(
     useCallback(() => {
@@ -182,6 +213,8 @@ export default function EditQuotationScreen({
       tax_id: null,
       tax_name: "GST 18% (Sales)",
       tax_rate: 18,
+      concrete_pump: "direct_pour",
+      pump_rate: "0",
       calculation: calculateLineItemTotals({
         quantity: 6,
         rate: 5000,
@@ -544,6 +577,14 @@ export default function EditQuotationScreen({
             setNotes(quoteData.notes);
           }
 
+          // 5b. Adjustment
+          if (
+            quoteData.adjustment !== undefined &&
+            quoteData.adjustment !== null
+          ) {
+            setAdjustment(String(quoteData.adjustment));
+          }
+
           // 6. Line Items
           if (Array.isArray(quoteData.items) && quoteData.items.length > 0) {
             const mapped: FormLineItem[] = quoteData.items.map(
@@ -552,6 +593,13 @@ export default function EditQuotationScreen({
                 const tax = it.tax || {};
                 const qty = parseFloat(it.quantity) || 0;
                 const rate = parseFloat(it.rate) || 0;
+                const concretePump =
+                  it.concrete_pump || it.pump_type || "direct_pour";
+                const pumpRate =
+                  it.pump_rate !== undefined && it.pump_rate !== null
+                    ? String(it.pump_rate)
+                    : "0";
+                const pumpRateNum = parseFloat(pumpRate) || 0;
                 const taxRate = Number(
                   tax.rate ??
                     tax.tax_rate ??
@@ -577,10 +625,12 @@ export default function EditQuotationScreen({
                     tax.name ||
                     (taxRate > 0 ? `GST ${taxRate}%` : "No Tax (0%)"),
                   tax_rate: taxRate,
+                  concrete_pump: concretePump,
+                  pump_rate: pumpRate,
                   calculation: calculateLineItemTotals({
                     quantity: qty,
                     rate: rate,
-                    pump_rate: 0,
+                    pump_rate: pumpRateNum,
                     taxRate: taxRate,
                     isTaxInclusive: taxInc,
                   }),
@@ -624,7 +674,7 @@ export default function EditQuotationScreen({
         calculation: calculateLineItemTotals({
           quantity: parseFloat(item.quantity) || 0,
           rate: parseFloat(item.rate) || 0,
-          pump_rate: 0,
+          pump_rate: parseFloat(item.pump_rate || "0") || 0,
           taxRate: item.tax_rate || 0,
           isTaxInclusive: nextVal,
         }),
@@ -644,17 +694,19 @@ export default function EditQuotationScreen({
       const updated = [...prev];
       const target = { ...updated[index], [field]: value };
 
-      // Re-run the exact calculation function from quotationCalculation.ts
+      // Re-run the calculation function with pump rate
       const qtyNum =
         parseFloat(field === "quantity" ? value : target.quantity) || 0;
       const rateNum = parseFloat(field === "rate" ? value : target.rate) || 0;
+      const pumpRateNum =
+        parseFloat(field === "pump_rate" ? value : target.pump_rate || "0") || 0;
       const taxRateNum =
         field === "tax_rate" ? Number(value) : target.tax_rate || 0;
 
       target.calculation = calculateLineItemTotals({
         quantity: qtyNum,
         rate: rateNum,
-        pump_rate: 0,
+        pump_rate: pumpRateNum,
         taxRate: taxRateNum,
         isTaxInclusive,
       });
@@ -694,6 +746,8 @@ export default function EditQuotationScreen({
       tax_rate: defaultTax
         ? Number(defaultTax.rate || defaultTax.tax_rate || 18)
         : 18,
+      concrete_pump: "direct_pour",
+      pump_rate: "0",
       calculation: calculateLineItemTotals({
         quantity: 6,
         rate: parseFloat(initialRate) || 5000,
@@ -723,18 +777,8 @@ export default function EditQuotationScreen({
   // AGGREGATE TOTAL ESTIMATE CALCULATION
   // ==========================================
   const totalSummary = useMemo(() => {
-    return items.reduce(
-      (acc, item) => {
-        return {
-          grossAmount: acc.grossAmount + item.calculation.grossAmount,
-          untaxedAmount: acc.untaxedAmount + item.calculation.untaxedAmount,
-          taxAmount: acc.taxAmount + item.calculation.taxAmount,
-          amountTotal: acc.amountTotal + item.calculation.amountTotal,
-        };
-      },
-      { grossAmount: 0, untaxedAmount: 0, taxAmount: 0, amountTotal: 0 },
-    );
-  }, [items]);
+    return calculateQuotationTotals(items, adjustment);
+  }, [items, adjustment]);
 
   // ==========================================
   // SEARCHABLE PICKER MODAL OPENERS (LIVE API ONLY)
@@ -876,6 +920,40 @@ export default function EditQuotationScreen({
     setPickerModalVisible(true);
   };
 
+  const openPumpTypePicker = (itemIndex: number) => {
+    const list =
+      reduxPumpTypes && reduxPumpTypes.length > 0
+        ? reduxPumpTypes
+        : [
+            "direct_pour",
+            "boom_pump",
+            "line_pump",
+            "crane_bucket",
+            "stationary_pump",
+          ];
+
+    setPickerConfig({
+      title: "Select Pump Type",
+      items: list.map((p: any) => {
+        const val = typeof p === "string" ? p : p.value || p.id || p.name;
+        const lbl =
+          typeof p === "string"
+            ? formatPumpLabel(p)
+            : p.label || p.name || formatPumpLabel(val);
+        return {
+          id: val,
+          label: lbl,
+        };
+      }),
+      selectedId: items[itemIndex]?.concrete_pump ?? null,
+      onSelect: (selected) => {
+        handleUpdateItem(itemIndex, "concrete_pump", selected.id);
+      },
+    });
+    setPickerSearch("");
+    setPickerModalVisible(true);
+  };
+
   // Filtered picker list based on search
   const filteredPickerItems = useMemo(() => {
     if (!pickerSearch.trim()) return pickerConfig.items;
@@ -981,6 +1059,7 @@ export default function EditQuotationScreen({
       validity_date: validityDate,
       is_tax_inclusive: isTaxInclusive ? 1 : 0,
       notes: notes.trim(),
+      adjustment: Number(parseFloat(adjustment || "0").toFixed(2)),
       items: items.map((it) => ({
         mix_design_id: Number(it.mix_design_id),
         quantity: Number(parseFloat(it.quantity).toFixed(2)),
@@ -989,6 +1068,8 @@ export default function EditQuotationScreen({
           it.tax_id !== null && it.tax_id !== undefined
             ? Number(it.tax_id)
             : null,
+        concrete_pump: it.concrete_pump || null,
+        pump_rate: Number(parseFloat(it.pump_rate || "0").toFixed(2)),
       })),
     };
 
@@ -1314,6 +1395,37 @@ export default function EditQuotationScreen({
                     </TouchableOpacity>
                   </View>
 
+                  {/* Pump Type & Pump Rate Row */}
+                  <View style={styles.rowTwoCol}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.label}>Pump type</Text>
+                      <TouchableOpacity
+                        style={styles.dropdownButton}
+                        onPress={() => openPumpTypePicker(index)}
+                        activeOpacity={0.75}
+                      >
+                        <Text style={styles.dropdownText} numberOfLines={1}>
+                          {formatPumpLabel(item.concrete_pump) || "Select Pump"}
+                        </Text>
+                        <Ionicons name="chevron-down" size={18} color="#64748B" />
+                      </TouchableOpacity>
+                    </View>
+
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.label}>Pump rate in ₹</Text>
+                      <TextInput
+                        style={styles.textInput}
+                        keyboardType="decimal-pad"
+                        value={item.pump_rate}
+                        onChangeText={(val) =>
+                          handleUpdateItem(index, "pump_rate", val)
+                        }
+                        placeholder="0.00"
+                        placeholderTextColor="#94A3B8"
+                      />
+                    </View>
+                  </View>
+
                   {/* Line Item Calculated Subtotal Strip */}
                   <View style={styles.lineItemCalcBox}>
                     <View>
@@ -1321,8 +1433,7 @@ export default function EditQuotationScreen({
                         Material Untaxed
                       </Text>
                       <Text style={styles.lineItemCalcValue}>
-                        ₹
-                        {item.calculation.untaxedAmount.toLocaleString("en-IN")}
+                        ₹{formatAmountWithDecimals(item.calculation.untaxedAmount)}
                       </Text>
                     </View>
                     <View style={{ alignItems: "center" }}>
@@ -1330,7 +1441,7 @@ export default function EditQuotationScreen({
                         Tax ({item.tax_rate}%)
                       </Text>
                       <Text style={styles.lineItemCalcValue}>
-                        ₹{item.calculation.taxAmount.toLocaleString("en-IN")}
+                        ₹{formatAmountWithDecimals(item.calculation.taxAmount)}
                       </Text>
                     </View>
                     <View style={{ alignItems: "flex-end" }}>
@@ -1338,7 +1449,7 @@ export default function EditQuotationScreen({
                         Item Total
                       </Text>
                       <Text style={styles.lineItemCalcValueTotal}>
-                        ₹{item.calculation.amountTotal.toLocaleString("en-IN")}
+                        ₹{formatAmountWithDecimals(item.calculation.amountTotal)}
                       </Text>
                     </View>
                   </View>
@@ -1393,22 +1504,52 @@ export default function EditQuotationScreen({
 
             {/* 7. TOTAL ESTIMATE BOX (MATCHES REFERENCE IMAGE) */}
             <View style={styles.totalEstimateCard}>
-              <View style={styles.totalEstimateHeaderRow}>
-                <Text style={styles.totalEstimateLabel}>Total estimate</Text>
-                <Text style={styles.totalEstimateAmount}>
-                  ₹
-                  {Math.round(totalSummary.amountTotal).toLocaleString("en-IN")}
+              <Text style={styles.totalEstimateCardTitle}>TOTAL ESTIMATE</Text>
+
+              <View style={styles.totalEstimateRow}>
+                <Text style={styles.totalEstimateRowLabel}>
+                  Subtotal (Untaxed)
+                </Text>
+                <Text style={styles.totalEstimateRowValue}>
+                  ₹{formatAmountWithDecimals(totalSummary.untaxedAmount)}
                 </Text>
               </View>
 
-              <View style={styles.totalEstimateBreakdownRow}>
-                <Text style={styles.totalEstimateBreakdownText}>
-                  Untaxed: ₹
-                  {Math.round(totalSummary.untaxedAmount).toLocaleString(
-                    "en-IN",
-                  )}{" "}
-                  · Tax: ₹
-                  {Math.round(totalSummary.taxAmount).toLocaleString("en-IN")}
+              <View style={styles.totalEstimateRow}>
+                <Text style={styles.totalEstimateRowLabel}>Total Taxes (+)</Text>
+                <Text style={styles.totalEstimateRowValue}>
+                  ₹{formatAmountWithDecimals(totalSummary.taxAmount)}
+                </Text>
+              </View>
+
+              <View style={styles.totalEstimateAdjustmentRow}>
+                <Text style={styles.totalEstimateAdjustmentLabel}>
+                  Adjustment
+                </Text>
+                <View style={styles.adjustmentInputWrapper}>
+                  <Text style={styles.adjustmentCurrencySymbol}>₹</Text>
+                  <TextInput
+                    style={styles.adjustmentTextInput}
+                    keyboardType="decimal-pad"
+                    value={adjustment}
+                    onChangeText={setAdjustment}
+                    placeholder="0.00"
+                    placeholderTextColor="#94A3B8"
+                  />
+                </View>
+              </View>
+
+              <View style={styles.totalEstimateDivider} />
+
+              <View style={styles.totalEstimateGrandRow}>
+                <View>
+                  <Text style={styles.grandTotalLabel}>Grand Total</Text>
+                  <Text style={styles.grandTotalSubLabel}>
+                    {isTaxInclusive ? "(Tax inclusive)" : "(Tax exclusive)"}
+                  </Text>
+                </View>
+                <Text style={styles.grandTotalAmount}>
+                  ₹{formatAmountWithDecimals(totalSummary.grandTotal)}
                 </Text>
               </View>
 
@@ -2004,6 +2145,92 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.04,
     shadowRadius: 3,
     elevation: 1,
+  },
+  totalEstimateCardTitle: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#64748B",
+    letterSpacing: 0.8,
+    marginBottom: 12,
+    textTransform: "uppercase",
+  },
+  totalEstimateRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 8,
+  },
+  totalEstimateRowLabel: {
+    fontSize: 13,
+    color: "#475569",
+    fontWeight: "500",
+  },
+  totalEstimateRowValue: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#0F172A",
+  },
+  totalEstimateAdjustmentRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginVertical: 4,
+  },
+  totalEstimateAdjustmentLabel: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#475569",
+  },
+  adjustmentInputWrapper: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#F8FAFC",
+    borderWidth: 1,
+    borderColor: "#CBD5E1",
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    width: 120,
+    height: 36,
+  },
+  adjustmentCurrencySymbol: {
+    fontSize: 13,
+    color: "#64748B",
+    fontWeight: "600",
+    marginRight: 4,
+  },
+  adjustmentTextInput: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#0F172A",
+    paddingVertical: 0,
+    textAlign: "right",
+  },
+  totalEstimateDivider: {
+    height: 1,
+    backgroundColor: "#E2E8F0",
+    marginVertical: 10,
+  },
+  totalEstimateGrandRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 8,
+  },
+  grandTotalLabel: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: "#0F172A",
+  },
+  grandTotalSubLabel: {
+    fontSize: 11,
+    color: "#64748B",
+    marginTop: 1,
+  },
+  grandTotalAmount: {
+    fontSize: 20,
+    fontWeight: "800",
+    color: "#2563EB",
   },
   totalEstimateHeaderRow: {
     flexDirection: "row",

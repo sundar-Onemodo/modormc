@@ -95,6 +95,39 @@ export function calculateLineItemTotals(
   };
 }
 
+export interface QuotationTotalsResult {
+  untaxedAmount: number;
+  taxAmount: number;
+  amountTotal: number;
+  adjustmentAmount: number;
+  grandTotal: number;
+}
+
+export function calculateQuotationTotals(
+  items: { calculation: LineItemCalculationResult }[],
+  adjustment: number | string = 0,
+): QuotationTotalsResult {
+  const totals = items.reduce(
+    (acc, item) => ({
+      untaxedAmount: acc.untaxedAmount + (item.calculation?.untaxedAmount || 0),
+      taxAmount: acc.taxAmount + (item.calculation?.taxAmount || 0),
+      amountTotal: acc.amountTotal + (item.calculation?.amountTotal || 0),
+    }),
+    { untaxedAmount: 0, taxAmount: 0, amountTotal: 0 },
+  );
+
+  const adj = parseFloat(String(adjustment || 0)) || 0;
+  const grandTotal = totals.untaxedAmount + totals.taxAmount + adj;
+
+  return {
+    untaxedAmount: Number(totals.untaxedAmount.toFixed(2)),
+    taxAmount: Number(totals.taxAmount.toFixed(2)),
+    amountTotal: Number(totals.amountTotal.toFixed(2)),
+    adjustmentAmount: adj,
+    grandTotal: Number(grandTotal.toFixed(2)),
+  };
+}
+
 export function useLineItemCalculation() {
   return {
     calculateLineItemTotals,

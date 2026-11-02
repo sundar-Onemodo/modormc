@@ -61,8 +61,6 @@ export interface MixDesignDropdownItem {
   concrete_grade_id?: number;
 }
 
-
-
 const PRIORITY_OPTIONS: {
   label: string;
   value: LeadPriority;
@@ -71,13 +69,6 @@ const PRIORITY_OPTIONS: {
   { label: "High", value: "High", color: "#DC2626" },
   { label: "Medium", value: "Medium", color: "#D97706" },
   { label: "Low", value: "Low", color: "#16A34A" },
-];
-
-const STATUS_OPTIONS: { label: string; value: LeadStatus; color: string }[] = [
-  { label: "New", value: "New", color: "#2563EB" },
-  { label: "Contacted", value: "Contacted", color: "#7C3AED" },
-  { label: "Qualified", value: "Qualified", color: "#059669" },
-  { label: "Unqualified", value: "Unqualified", color: "#DC2626" },
 ];
 
 const SOURCE_OPTIONS: { label: string; value: LeadSource; icon: string }[] = [
@@ -139,77 +130,6 @@ function formatDateFriendly(dateStr?: string): string {
 }
 
 // ==========================================
-// RADIO BUTTON GROUP COMPONENT
-// ==========================================
-
-function RadioGroup<T extends string>({
-  options,
-  selectedValue,
-  onSelect,
-  columns = 2,
-}: {
-  options: { label: string; value: T; color?: string; icon?: string }[];
-  selectedValue: T;
-  onSelect: (val: T) => void;
-  columns?: 1 | 2 | 3;
-}) {
-  return (
-    <View style={styles.radioGrid}>
-      {options.map((option) => {
-        const isSelected = selectedValue === option.value;
-        const itemWidth =
-          columns === 3 ? "31%" : columns === 2 ? "48%" : "100%";
-
-        return (
-          <TouchableOpacity
-            key={option.value}
-            style={[
-              styles.radioCard,
-              { width: itemWidth },
-              isSelected && styles.radioCardSelected,
-            ]}
-            onPress={() => onSelect(option.value)}
-            activeOpacity={0.7}
-          >
-            {/* Outer Radio Circle */}
-            <View
-              style={[
-                styles.radioCircle,
-                isSelected && styles.radioCircleSelected,
-              ]}
-            >
-              {isSelected && <View style={styles.radioDot} />}
-            </View>
-
-            {/* Optional Icon */}
-            {option.icon ? (
-              <Ionicons
-                name={option.icon as any}
-                size={14}
-                color={isSelected ? "#2563EB" : "#64748B"}
-                style={{ marginRight: 4 }}
-              />
-            ) : null}
-
-            {/* Label */}
-            <Text
-              style={[
-                styles.radioLabel,
-                isSelected && styles.radioLabelSelected,
-                option.color && isSelected ? { color: option.color } : null,
-              ]}
-              numberOfLines={1}
-            >
-              {option.label}
-            </Text>
-          </TouchableOpacity>
-        );
-      })}
-    </View>
-  );
-}
-
-// ==========================================
 // MAIN CREATE LEAD SCREEN
 // ==========================================
 
@@ -218,6 +138,8 @@ export default function CreateLeadScreen() {
   const { token, plant_id, plant_name } = useSelector(
     (state: RootState) => state.auth,
   );
+  console.log("PLANT_Id:", plant_id);
+
   const cachedMixDesigns = useSelector(
     (state: RootState) => state.quotation?.mixDesigns,
   );
@@ -230,14 +152,17 @@ export default function CreateLeadScreen() {
   const [companyName, setCompanyName] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
+  const [requirement, setRequirement] = useState("");
 
   // Enquiry date auto-set in background
   const enquiryDate = useMemo(() => getTodayString(), []);
 
-  // Priority, Source, Status with Radio Selection
+  // Priority and Source with Radio Selection
   const [priority, setPriority] = useState<LeadPriority>("High");
   const [source, setSource] = useState<LeadSource>("Referral");
-  const [status, setStatus] = useState<LeadStatus>("New");
+  const [classificationPicker, setClassificationPicker] = useState<
+    "priority" | "source" | null
+  >(null);
 
   // Mix Design Dropdown API State (Loaded directly from API)
   const [mixDesigns, setMixDesigns] = useState<MixDesignDropdownItem[]>(() => {
@@ -265,9 +190,7 @@ export default function CreateLeadScreen() {
     () => {
       if (cachedMixDesigns && cachedMixDesigns.length > 0) {
         return (
-          cachedMixDesigns[0].design_name ||
-          cachedMixDesigns[0].name ||
-          ""
+          cachedMixDesigns[0].design_name || cachedMixDesigns[0].name || ""
         );
       }
       return "";
@@ -275,8 +198,8 @@ export default function CreateLeadScreen() {
   );
 
   // Concrete & Financial Specs
-  const [estimatedQuantity, setEstimatedQuantity] = useState("40");
-  const [expectedValue, setExpectedValue] = useState("200000");
+  const [estimatedQuantity, setEstimatedQuantity] = useState("0");
+  const [expectedValue, setExpectedValue] = useState("0");
 
   // Purchase date with Date Picker
   const [expectedPurchaseDate, setExpectedPurchaseDate] = useState<string>(
@@ -326,8 +249,10 @@ export default function CreateLeadScreen() {
         timeout: 20000,
       })
       .then((res) => {
+        console.log("MIX DES:", res.data);
         if (isCancelled) return;
         const list = res.data?.data?.data || res.data?.data || [];
+
         if (Array.isArray(list) && list.length > 0) {
           setMixDesigns(list);
           dispatch(setReduxMixDesigns(list));
@@ -351,7 +276,9 @@ export default function CreateLeadScreen() {
       .catch((err) => {
         if (isCancelled) return;
         if (err?.response?.status === 429) {
-          console.log("Mix designs rate limited (429); utilizing cached designs.");
+          console.log(
+            "Mix designs rate limited (429); utilizing cached designs.",
+          );
         } else {
           console.warn("Could not load live mix designs:", err?.message || err);
         }
@@ -417,8 +344,6 @@ export default function CreateLeadScreen() {
     setCalendarModalVisible(false);
   };
 
-
-
   // Submit Lead to API
   const handleSubmitLead = async () => {
     if (!projectName.trim()) {
@@ -429,8 +354,14 @@ export default function CreateLeadScreen() {
       Alert.alert("Missing Field", "Please enter Contact Person Name.");
       return;
     }
-    if (!phone.trim()) {
-      Alert.alert("Missing Field", "Please enter Phone Number.");
+    const trimmedPhone = phone.trim();
+    const trimmedEmail = email.trim();
+
+    if (!trimmedPhone && !trimmedEmail) {
+      Alert.alert(
+        "Missing Contact Info",
+        "Please enter either a Phone Number or an Email Address.",
+      );
       return;
     }
     if (!deliveryLocation.trim()) {
@@ -456,7 +387,7 @@ export default function CreateLeadScreen() {
       headers["X-Plant-Id"] = String(plant_id);
     }
 
-    // REQUIREMENT: send mix-design id as a string for create lead api
+    // REQUIREMENT: send mix_design_id as number and requirement as text
     if (!selectedMixDesignId) {
       Alert.alert(
         "Missing Field",
@@ -464,35 +395,38 @@ export default function CreateLeadScreen() {
       );
       return;
     }
-    const mixDesignIdToSend = String(selectedMixDesignId);
 
     const resolvedAddress = address.trim() || deliveryLocation.trim();
 
     const payload: Record<string, any> = {
       contact_name: contactName.trim(),
       company_name: companyName.trim() || null,
-      phone: phone.trim(),
-      email: email.trim() || null,
+      phone: trimmedPhone || null,
+      email: trimmedEmail || null,
       enquiry_date: enquiryDate,
       source: normalizeSourceForApi(source),
-      status,
+      status: "New",
       priority,
-      requirement: mixDesignIdToSend,
+      requirement: requirement.trim() || null,
+      mix_design_id: Number(selectedMixDesignId),
       estimated_quantity: parseFloat(estimatedQuantity) || 0,
       expected_value: parseFloat(expectedValue) || 0,
       expected_purchase_date: expectedPurchaseDate || null,
       remarks: remarks.trim() || null,
       delivery_location: deliveryLocation.trim(),
       address: resolvedAddress,
-      addrress: resolvedAddress,
       project_name: projectName.trim(),
     };
+
+    console.log("CHECK PAYLOAD:", payload);
 
     try {
       const response = await axios.post(`${baseURL}v1/leads`, payload, {
         headers,
         timeout: 25000,
       });
+
+      console.log("CHECK RES:", response);
 
       if (response.data?.success) {
         Alert.alert(
@@ -520,7 +454,10 @@ export default function CreateLeadScreen() {
     } catch (err: any) {
       console.warn("Create Lead Error Status:", err?.response?.status);
       console.warn("Create Lead Error:", err?.message || err);
-      console.warn("Create Lead Response Data:", JSON.stringify(err?.response?.data));
+      console.warn(
+        "Create Lead Response Data:",
+        JSON.stringify(err?.response?.data),
+      );
 
       let serverMessage =
         err?.response?.data?.message ||
@@ -528,7 +465,10 @@ export default function CreateLeadScreen() {
         err?.message ||
         "Could not save lead to the server.";
 
-      if (err?.response?.data?.errors && typeof err.response.data.errors === "object") {
+      if (
+        err?.response?.data?.errors &&
+        typeof err.response.data.errors === "object"
+      ) {
         const errorList = Object.entries(err.response.data.errors)
           .map(([k, v]) => `• ${k}: ${Array.isArray(v) ? v.join(", ") : v}`)
           .join("\n");
@@ -568,21 +508,6 @@ export default function CreateLeadScreen() {
               Plant: {plant_name || "Ready-Mix Concrete"}
             </Text>
           </View>
-          <TouchableOpacity
-            style={styles.headerSaveBtn}
-            onPress={handleSubmitLead}
-            disabled={isSubmitting}
-            activeOpacity={0.8}
-          >
-            {isSubmitting ? (
-              <ActivityIndicator size="small" color="#FFFFFF" />
-            ) : (
-              <View style={styles.headerSaveBtnInner}>
-                <Ionicons name="checkmark-circle" size={16} color="#FFFFFF" />
-                <Text style={styles.headerSaveBtnText}>Create</Text>
-              </View>
-            )}
-          </TouchableOpacity>
         </View>
       </View>
 
@@ -594,10 +519,7 @@ export default function CreateLeadScreen() {
         <ScrollView
           ref={scrollViewRef}
           style={styles.container}
-          contentContainerStyle={[
-            styles.scrollContent,
-            { paddingBottom: 60 },
-          ]}
+          contentContainerStyle={[styles.scrollContent, { paddingBottom: 60 }]}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
@@ -681,7 +603,10 @@ export default function CreateLeadScreen() {
             <View style={styles.twoColRow}>
               <View style={[styles.fieldGroup, { flex: 1 }]}>
                 <Text style={styles.fieldLabel}>
-                  PHONE NUMBER <Text style={styles.requiredStar}>*</Text>
+                  PHONE NUMBER{" "}
+                  {!email.trim() ? (
+                    <Text style={styles.requiredStar}>*</Text>
+                  ) : null}
                 </Text>
                 <View style={styles.inputBox}>
                   <Ionicons
@@ -702,7 +627,12 @@ export default function CreateLeadScreen() {
               </View>
 
               <View style={[styles.fieldGroup, { flex: 1 }]}>
-                <Text style={styles.fieldLabel}>EMAIL ADDRESS</Text>
+                <Text style={styles.fieldLabel}>
+                  EMAIL ADDRESS{" "}
+                  {!phone.trim() ? (
+                    <Text style={styles.requiredStar}>*</Text>
+                  ) : null}
+                </Text>
                 <View style={styles.inputBox}>
                   <Ionicons
                     name="mail-outline"
@@ -722,10 +652,20 @@ export default function CreateLeadScreen() {
                 </View>
               </View>
             </View>
+            <Text
+              style={{
+                fontSize: 11,
+                color: "#64748B",
+                marginTop: -6,
+                marginBottom: 8,
+              }}
+            >
+              * Either Phone number or Email is required
+            </Text>
           </View>
 
           {/* ==========================================
-              SECTION 2: CLASSIFICATION (RADIO BUTTONS)
+              SECTION 2: CLASSIFICATION (3 DROPDOWNS IN ONE ROW)
           ========================================== */}
           <View style={styles.card}>
             <View style={styles.cardSectionHeader}>
@@ -733,51 +673,75 @@ export default function CreateLeadScreen() {
               <Text style={styles.cardSectionTitle}>Lead Classification</Text>
             </View>
 
-            {/* 1. Priority (Urgent removed) */}
-            <View style={styles.fieldGroup}>
-              <View style={styles.labelWithBadgeRow}>
-                <Text style={styles.fieldLabel}>PRIORITY</Text>
-                <Text style={styles.helperText}>Select urgency level</Text>
+            <View style={styles.twoColRow}>
+              {/* 1. Priority Dropdown */}
+              <View style={[styles.fieldGroup, { flex: 1 }]}>
+                <Text style={styles.fieldLabel} numberOfLines={1}>
+                  PRIORITY
+                </Text>
+                <TouchableOpacity
+                  style={styles.dropdownTriggerCompact}
+                  onPress={() => setClassificationPicker("priority")}
+                  activeOpacity={0.8}
+                >
+                  <View style={styles.dropdownTriggerLeftCompact}>
+                    <View
+                      style={{
+                        width: 8,
+                        height: 8,
+                        borderRadius: 4,
+                        backgroundColor:
+                          PRIORITY_OPTIONS.find((p) => p.value === priority)
+                            ?.color || "#2563EB",
+                        marginRight: 5,
+                      }}
+                    />
+                    <Text
+                      style={styles.dropdownTriggerTextCompact}
+                      numberOfLines={1}
+                    >
+                      {priority}
+                    </Text>
+                  </View>
+                  <Ionicons name="chevron-down" size={14} color="#64748B" />
+                </TouchableOpacity>
               </View>
-              <RadioGroup
-                options={PRIORITY_OPTIONS}
-                selectedValue={priority}
-                onSelect={(val) => setPriority(val)}
-                columns={3}
-              />
-            </View>
 
-            {/* 2. Status */}
-            <View style={styles.fieldGroup}>
-              <View style={styles.labelWithBadgeRow}>
-                <Text style={styles.fieldLabel}>STATUS</Text>
-                <Text style={styles.helperText}>Current pipeline stage</Text>
+              {/* 2. Lead Source Dropdown */}
+              <View style={[styles.fieldGroup, { flex: 1 }]}>
+                <Text style={styles.fieldLabel} numberOfLines={1}>
+                  SOURCE
+                </Text>
+                <TouchableOpacity
+                  style={styles.dropdownTriggerCompact}
+                  onPress={() => setClassificationPicker("source")}
+                  activeOpacity={0.8}
+                >
+                  <View style={styles.dropdownTriggerLeftCompact}>
+                    <Ionicons
+                      name={
+                        (SOURCE_OPTIONS.find((s) => s.value === source)
+                          ?.icon as any) || "pricetag-outline"
+                      }
+                      size={13}
+                      color="#2563EB"
+                      style={{ marginRight: 4 }}
+                    />
+                    <Text
+                      style={styles.dropdownTriggerTextCompact}
+                      numberOfLines={1}
+                    >
+                      {source}
+                    </Text>
+                  </View>
+                  <Ionicons name="chevron-down" size={14} color="#64748B" />
+                </TouchableOpacity>
               </View>
-              <RadioGroup
-                options={STATUS_OPTIONS}
-                selectedValue={status}
-                onSelect={(val) => setStatus(val)}
-                columns={2}
-              />
-            </View>
-
-            {/* 3. Lead Source */}
-            <View style={styles.fieldGroup}>
-              <View style={styles.labelWithBadgeRow}>
-                <Text style={styles.fieldLabel}>LEAD SOURCE</Text>
-                <Text style={styles.helperText}>Channel of discovery</Text>
-              </View>
-              <RadioGroup
-                options={SOURCE_OPTIONS}
-                selectedValue={source}
-                onSelect={(val) => setSource(val)}
-                columns={3}
-              />
             </View>
           </View>
 
           {/* ==========================================
-              SECTION 3: CONCRETE SPECS & FINANCIALS (WITH MIX DESIGN DROPDOWN)
+              SECTION 3: CONCRETE REQUIREMENT & FINANCIALS & PURCHASE DATE
           ========================================== */}
           <View style={styles.card}>
             <View style={styles.cardSectionHeader}>
@@ -830,6 +794,26 @@ export default function CreateLeadScreen() {
               </TouchableOpacity>
             </View>
 
+            {/* Requirement Text Input */}
+            <View style={styles.fieldGroup}>
+              <Text style={styles.fieldLabel}>REQUIREMENT</Text>
+              <View style={styles.inputBox}>
+                <MaterialCommunityIcons
+                  name="clipboard-text-outline"
+                  size={16}
+                  color="#2563EB"
+                  style={styles.inputIcon}
+                />
+                <TextInput
+                  style={styles.textInput}
+                  placeholder="e.g. Top floor, Foundation, Slab..."
+                  placeholderTextColor="#94A3B8"
+                  value={requirement}
+                  onChangeText={setRequirement}
+                />
+              </View>
+            </View>
+
             {/* Estimated Qty & Expected Value */}
             <View style={styles.twoColRow}>
               <View style={[styles.fieldGroup, { flex: 1 }]}>
@@ -874,18 +858,8 @@ export default function CreateLeadScreen() {
                 </View>
               </View>
             </View>
-          </View>
 
-          {/* ==========================================
-              SECTION 4: TIMELINE & DATES (PURCHASE DATE PICKER ONLY)
-          ========================================== */}
-          <View style={styles.card}>
-            <View style={styles.cardSectionHeader}>
-              <Ionicons name="calendar" size={16} color="#2563EB" />
-              <Text style={styles.cardSectionTitle}>Timeline & Dates</Text>
-            </View>
-
-            {/* Expected Purchase Date: Interactive Date Picker */}
+            {/* Expected Purchase Date: Interactive Date Picker with Calendar Icon */}
             <View style={styles.fieldGroup}>
               <Text style={styles.fieldLabel}>
                 EXPECTED PURCHASE DATE{" "}
@@ -1011,6 +985,163 @@ export default function CreateLeadScreen() {
           <View style={{ height: 30 }} />
         </ScrollView>
       </KeyboardAvoidingView>
+
+      {/* ==========================================
+          CLASSIFICATION DROPDOWN PICKER MODAL
+      ========================================== */}
+      <Modal
+        visible={classificationPicker !== null}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setClassificationPicker(null)}
+      >
+        <TouchableOpacity
+          style={styles.pickerModalOverlay}
+          activeOpacity={1}
+          onPress={() => setClassificationPicker(null)}
+        >
+          <View
+            style={styles.pickerModalContent}
+            onStartShouldSetResponder={() => true}
+          >
+            {/* Modal Title & Close */}
+            <View style={styles.pickerModalHeader}>
+              <View>
+                <Text style={styles.pickerModalTitle}>
+                  {classificationPicker === "priority"
+                    ? "Select Priority"
+                    : "Select Lead Source"}
+                </Text>
+                <Text style={styles.pickerModalSubtitle}>
+                  {classificationPicker === "priority"
+                    ? "Set the urgency level for this lead"
+                    : "Channel or source of discovery"}
+                </Text>
+              </View>
+              <TouchableOpacity
+                style={styles.pickerCloseBtn}
+                onPress={() => setClassificationPicker(null)}
+              >
+                <Ionicons name="close" size={20} color="#64748B" />
+              </TouchableOpacity>
+            </View>
+
+            {/* List options */}
+            <ScrollView
+              style={{ maxHeight: 380 }}
+              contentContainerStyle={{
+                paddingHorizontal: 16,
+                paddingBottom: 24,
+              }}
+            >
+              {classificationPicker === "priority" &&
+                PRIORITY_OPTIONS.map((opt) => {
+                  const isSelected = priority === opt.value;
+                  return (
+                    <TouchableOpacity
+                      key={opt.value}
+                      style={[
+                        styles.classificationItemRow,
+                        isSelected && styles.classificationItemRowSelected,
+                      ]}
+                      onPress={() => {
+                        setPriority(opt.value);
+                        setClassificationPicker(null);
+                      }}
+                      activeOpacity={0.7}
+                    >
+                      <View
+                        style={{
+                          flexDirection: "row",
+                          alignItems: "center",
+                          gap: 10,
+                        }}
+                      >
+                        <View
+                          style={{
+                            width: 12,
+                            height: 12,
+                            borderRadius: 6,
+                            backgroundColor: opt.color,
+                          }}
+                        />
+                        <Text
+                          style={[
+                            styles.classificationItemLabel,
+                            isSelected && {
+                              color: opt.color,
+                              fontWeight: "800",
+                            },
+                          ]}
+                        >
+                          {opt.label}
+                        </Text>
+                      </View>
+                      {isSelected && (
+                        <Ionicons
+                          name="checkmark-circle"
+                          size={20}
+                          color={opt.color}
+                        />
+                      )}
+                    </TouchableOpacity>
+                  );
+                })}
+
+              {classificationPicker === "source" &&
+                SOURCE_OPTIONS.map((opt) => {
+                  const isSelected = source === opt.value;
+                  return (
+                    <TouchableOpacity
+                      key={opt.value}
+                      style={[
+                        styles.classificationItemRow,
+                        isSelected && styles.classificationItemRowSelected,
+                      ]}
+                      onPress={() => {
+                        setSource(opt.value);
+                        setClassificationPicker(null);
+                      }}
+                      activeOpacity={0.7}
+                    >
+                      <View
+                        style={{
+                          flexDirection: "row",
+                          alignItems: "center",
+                          gap: 10,
+                        }}
+                      >
+                        <Ionicons
+                          name={opt.icon as any}
+                          size={18}
+                          color={isSelected ? "#2563EB" : "#64748B"}
+                        />
+                        <Text
+                          style={[
+                            styles.classificationItemLabel,
+                            isSelected && {
+                              color: "#2563EB",
+                              fontWeight: "800",
+                            },
+                          ]}
+                        >
+                          {opt.label}
+                        </Text>
+                      </View>
+                      {isSelected && (
+                        <Ionicons
+                          name="checkmark-circle"
+                          size={20}
+                          color="#2563EB"
+                        />
+                      )}
+                    </TouchableOpacity>
+                  );
+                })}
+            </ScrollView>
+          </View>
+        </TouchableOpacity>
+      </Modal>
 
       {/* ==========================================
           MIX DESIGN SEARCHABLE PICKER MODAL (DROPDOWN API)
@@ -1323,6 +1454,41 @@ const styles = StyleSheet.create({
     color: "#94A3B8",
     marginTop: 2,
   },
+  headerCalendarBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(255, 255, 255, 0.15)",
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.3)",
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    gap: 6,
+    marginLeft: 8,
+  },
+  headerCalendarBtnText: {
+    color: "#FFFFFF",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  classificationItemRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: "#F1F5F9",
+    borderRadius: 8,
+  },
+  classificationItemRowSelected: {
+    backgroundColor: "#EFF6FF",
+  },
+  classificationItemLabel: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#1E293B",
+  },
   headerSaveBtn: {
     backgroundColor: "#2563EB",
     paddingHorizontal: 12,
@@ -1388,6 +1554,10 @@ const styles = StyleSheet.create({
   twoColRow: {
     flexDirection: "row",
     gap: 10,
+  },
+  threeColRow: {
+    flexDirection: "row",
+    gap: 8,
   },
   fieldLabel: {
     fontSize: 11,
@@ -1471,6 +1641,29 @@ const styles = StyleSheet.create({
   dropdownPlaceholder: {
     color: "#94A3B8",
     fontWeight: "500",
+  },
+  dropdownTriggerCompact: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: "#F8FAFC",
+    borderWidth: 1,
+    borderColor: "#CBD5E1",
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    height: 42,
+  },
+  dropdownTriggerLeftCompact: {
+    flexDirection: "row",
+    alignItems: "center",
+    flex: 1,
+    marginRight: 2,
+  },
+  dropdownTriggerTextCompact: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#0F172A",
+    flex: 1,
   },
 
   // RADIO BUTTONS

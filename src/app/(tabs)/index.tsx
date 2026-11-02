@@ -56,6 +56,8 @@ interface LiveLead {
   company_name?: string;
   project_name?: string;
   requirement?: string;
+  mix_design_id?: number | null;
+  mix_design?: any;
   estimated_quantity?: string | number;
   delivery_location?: string;
   expected_value?: string | number;
@@ -131,7 +133,10 @@ const SAMPLE_LEADS: LiveLead[] = [
 // Helper: Format Currency
 const formatCurrency = (val: string | number | null | undefined): string => {
   if (val === null || val === undefined || val === "") return "₹0";
-  const num = typeof val === "number" ? val : parseFloat(String(val).replace(/[^0-9.-]/g, ""));
+  const num =
+    typeof val === "number"
+      ? val
+      : parseFloat(String(val).replace(/[^0-9.-]/g, ""));
   if (isNaN(num)) return "₹0";
   if (num >= 10000000) return `₹${(num / 10000000).toFixed(2)} Cr`;
   if (num >= 100000) return `₹${(num / 100000).toFixed(2)} L`;
@@ -143,17 +148,47 @@ const getOrderStatusMeta = (status: number | string) => {
   const s = Number(status);
   switch (s) {
     case 0:
-      return { label: "Draft", bg: "#F1F5F9", text: "#475569", border: "#CBD5E1" };
+      return {
+        label: "Draft",
+        bg: "#F1F5F9",
+        text: "#475569",
+        border: "#CBD5E1",
+      };
     case 1:
-      return { label: "Approved", bg: "#EFF6FF", text: "#1E40AF", border: "#BFDBFE" };
+      return {
+        label: "Approved",
+        bg: "#EFF6FF",
+        text: "#1E40AF",
+        border: "#BFDBFE",
+      };
     case 2:
-      return { label: "In Production", bg: "#FEF3C7", text: "#B45309", border: "#FDE68A" };
+      return {
+        label: "In Production",
+        bg: "#FEF3C7",
+        text: "#B45309",
+        border: "#FDE68A",
+      };
     case 3:
-      return { label: "Completed", bg: "#ECFDF5", text: "#065F46", border: "#A7F3D0" };
+      return {
+        label: "Completed",
+        bg: "#ECFDF5",
+        text: "#065F46",
+        border: "#A7F3D0",
+      };
     case 4:
-      return { label: "Cancelled", bg: "#FEF2F2", text: "#991B1B", border: "#FECACA" };
+      return {
+        label: "Cancelled",
+        bg: "#FEF2F2",
+        text: "#991B1B",
+        border: "#FECACA",
+      };
     default:
-      return { label: "Active", bg: "#EFF6FF", text: "#2563EB", border: "#BFDBFE" };
+      return {
+        label: "Active",
+        bg: "#EFF6FF",
+        text: "#2563EB",
+        border: "#BFDBFE",
+      };
   }
 };
 
@@ -171,9 +206,21 @@ async function fetchDashboardApis(
   }
 
   return Promise.allSettled([
-    axios.get(`${baseURL}v1/orders`, { headers, params: { per_page: 20 }, timeout: 15000 }),
-    axios.get(`${baseURL}v1/leads`, { headers, params: { per_page: 20 }, timeout: 15000 }),
-    axios.get(`${baseURL}v1/quotations`, { headers, params: { per_page: 30 }, timeout: 15000 }),
+    axios.get(`${baseURL}v1/orders`, {
+      headers,
+      params: { per_page: 20 },
+      timeout: 15000,
+    }),
+    axios.get(`${baseURL}v1/leads`, {
+      headers,
+      params: { per_page: 20 },
+      timeout: 15000,
+    }),
+    axios.get(`${baseURL}v1/quotations`, {
+      headers,
+      params: { per_page: 30 },
+      timeout: 15000,
+    }),
   ]);
 }
 
@@ -181,6 +228,8 @@ export default function HomeScreen() {
   const { token, plant_id, plant_name } = useSelector(
     (state: RootState) => state.auth,
   );
+
+  console.log("PALNT_ID:", plant_id);
 
   const [orders, setOrders] = useState<LiveOrder[]>(SAMPLE_ORDERS);
   const [leads, setLeads] = useState<LiveLead[]>(SAMPLE_LEADS);
@@ -250,7 +299,10 @@ export default function HomeScreen() {
   const handleRefresh = async () => {
     setRefreshing(true);
     try {
-      const [ordersRes, leadsRes, quotesRes] = await fetchDashboardApis(token, plant_id);
+      const [ordersRes, leadsRes, quotesRes] = await fetchDashboardApis(
+        token,
+        plant_id,
+      );
       if (ordersRes.status === "fulfilled" && ordersRes.value.data) {
         const raw = ordersRes.value.data;
         const list = Array.isArray(raw.data?.data)
@@ -301,7 +353,9 @@ export default function HomeScreen() {
 
     // Production Progress %
     const dispatchPercent =
-      totalOrderQty > 0 ? Math.min(100, Math.round((totalProducedQty / totalOrderQty) * 100)) : 0;
+      totalOrderQty > 0
+        ? Math.min(100, Math.round((totalProducedQty / totalOrderQty) * 100))
+        : 0;
 
     // Total Quotation Value
     const totalQuoteVal = quotations.reduce((sum, q) => {
@@ -321,7 +375,11 @@ export default function HomeScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea} edges={["top"]}>
-      <StatusBar barStyle="light-content" backgroundColor="#0B2A4A" translucent={false} />
+      <StatusBar
+        barStyle="light-content"
+        backgroundColor="#0B2A4A"
+        translucent={false}
+      />
 
       <ScrollView
         style={styles.container}
@@ -364,7 +422,9 @@ export default function HomeScreen() {
                 name="reload-outline"
                 size={18}
                 color="#FFFFFF"
-                style={refreshing ? { transform: [{ rotate: "45deg" }] } : undefined}
+                style={
+                  refreshing ? { transform: [{ rotate: "45deg" }] } : undefined
+                }
               />
             </TouchableOpacity>
           </View>
@@ -377,12 +437,23 @@ export default function HomeScreen() {
               activeOpacity={0.8}
               onPress={() => router.push("/(tabs)/orders")}
             >
-              <View style={[styles.kpiIconWrap, { backgroundColor: "rgba(37, 99, 235, 0.2)" }]}>
-                <MaterialCommunityIcons name="clipboard-text-outline" size={18} color="#60A5FA" />
+              <View
+                style={[
+                  styles.kpiIconWrap,
+                  { backgroundColor: "rgba(37, 99, 235, 0.2)" },
+                ]}
+              >
+                <MaterialCommunityIcons
+                  name="clipboard-text-outline"
+                  size={18}
+                  color="#60A5FA"
+                />
               </View>
               <Text style={styles.kpiVal}>{metrics.ordersCount}</Text>
               <Text style={styles.kpiLabel}>ACTIVE ORDERS</Text>
-              <Text style={styles.kpiSub}>{metrics.totalOrderQty} m³ Booked</Text>
+              <Text style={styles.kpiSub}>
+                {metrics.totalOrderQty} m³ Booked
+              </Text>
             </TouchableOpacity>
 
             {/* KPI 2: Production Dispatched */}
@@ -391,14 +462,26 @@ export default function HomeScreen() {
               activeOpacity={0.8}
               onPress={() => router.push("/(tabs)/orders")}
             >
-              <View style={[styles.kpiIconWrap, { backgroundColor: "rgba(5, 150, 105, 0.2)" }]}>
-                <MaterialCommunityIcons name="truck-delivery-outline" size={18} color="#34D399" />
+              <View
+                style={[
+                  styles.kpiIconWrap,
+                  { backgroundColor: "rgba(5, 150, 105, 0.2)" },
+                ]}
+              >
+                <MaterialCommunityIcons
+                  name="truck-delivery-outline"
+                  size={18}
+                  color="#34D399"
+                />
               </View>
               <Text style={[styles.kpiVal, { color: "#34D399" }]}>
-                {metrics.totalProducedQty} <Text style={{ fontSize: 13 }}>m³</Text>
+                {metrics.totalProducedQty}{" "}
+                <Text style={{ fontSize: 13 }}>m³</Text>
               </Text>
               <Text style={styles.kpiLabel}>DISPATCHED</Text>
-              <Text style={styles.kpiSub}>{metrics.dispatchPercent}% Completed</Text>
+              <Text style={styles.kpiSub}>
+                {metrics.dispatchPercent}% Completed
+              </Text>
             </TouchableOpacity>
 
             {/* KPI 3: Commercial Leads */}
@@ -407,10 +490,21 @@ export default function HomeScreen() {
               activeOpacity={0.8}
               onPress={() => router.push("/(tabs)/leads")}
             >
-              <View style={[styles.kpiIconWrap, { backgroundColor: "rgba(217, 119, 6, 0.2)" }]}>
-                <MaterialCommunityIcons name="account-group-outline" size={18} color="#FBBF24" />
+              <View
+                style={[
+                  styles.kpiIconWrap,
+                  { backgroundColor: "rgba(217, 119, 6, 0.2)" },
+                ]}
+              >
+                <MaterialCommunityIcons
+                  name="account-group-outline"
+                  size={18}
+                  color="#FBBF24"
+                />
               </View>
-              <Text style={[styles.kpiVal, { color: "#FBBF24" }]}>{metrics.leadsCount}</Text>
+              <Text style={[styles.kpiVal, { color: "#FBBF24" }]}>
+                {metrics.leadsCount}
+              </Text>
               <Text style={styles.kpiLabel}>ACTIVE LEADS</Text>
               <Text style={styles.kpiSub}>Pipeline Enquiries</Text>
             </TouchableOpacity>
@@ -421,14 +515,21 @@ export default function HomeScreen() {
               activeOpacity={0.8}
               onPress={() => router.push("/showlistquotation")}
             >
-              <View style={[styles.kpiIconWrap, { backgroundColor: "rgba(99, 102, 241, 0.2)" }]}>
+              <View
+                style={[
+                  styles.kpiIconWrap,
+                  { backgroundColor: "rgba(99, 102, 241, 0.2)" },
+                ]}
+              >
                 <Ionicons name="cash-outline" size={18} color="#A5B4FC" />
               </View>
               <Text style={[styles.kpiVal, { color: "#A5B4FC" }]}>
                 {formatCurrency(metrics.totalQuoteVal)}
               </Text>
               <Text style={styles.kpiLabel}>QUOTE PIPELINE</Text>
-              <Text style={styles.kpiSub}>{quotations.length} Active Quotes</Text>
+              <Text style={styles.kpiSub}>
+                {quotations.length} Active Quotes
+              </Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -446,7 +547,12 @@ export default function HomeScreen() {
               onPress={() => router.push("/showcreatelead")}
               activeOpacity={0.85}
             >
-              <View style={[styles.actionIconCircle, { backgroundColor: "#EFF6FF" }]}>
+              <View
+                style={[
+                  styles.actionIconCircle,
+                  { backgroundColor: "#EFF6FF" },
+                ]}
+              >
                 <Ionicons name="person-add" size={20} color="#2563EB" />
               </View>
               <Text style={styles.actionCardTitle}>New Lead</Text>
@@ -459,7 +565,12 @@ export default function HomeScreen() {
               onPress={() => router.push("/showcreatequotations")}
               activeOpacity={0.85}
             >
-              <View style={[styles.actionIconCircle, { backgroundColor: "#F0FDF4" }]}>
+              <View
+                style={[
+                  styles.actionIconCircle,
+                  { backgroundColor: "#F0FDF4" },
+                ]}
+              >
                 <Ionicons name="document-text" size={20} color="#059669" />
               </View>
               <Text style={styles.actionCardTitle}>New Quote</Text>
@@ -472,8 +583,17 @@ export default function HomeScreen() {
               onPress={() => router.push("/(tabs)/orders")}
               activeOpacity={0.85}
             >
-              <View style={[styles.actionIconCircle, { backgroundColor: "#FFFBEB" }]}>
-                <MaterialCommunityIcons name="clipboard-check" size={20} color="#D97706" />
+              <View
+                style={[
+                  styles.actionIconCircle,
+                  { backgroundColor: "#FFFBEB" },
+                ]}
+              >
+                <MaterialCommunityIcons
+                  name="clipboard-check"
+                  size={20}
+                  color="#D97706"
+                />
               </View>
               <Text style={styles.actionCardTitle}>Orders</Text>
               <Text style={styles.actionCardSubtitle}>Production</Text>
@@ -485,7 +605,12 @@ export default function HomeScreen() {
               onPress={() => router.push("/shocustomerlist")}
               activeOpacity={0.85}
             >
-              <View style={[styles.actionIconCircle, { backgroundColor: "#F5F3FF" }]}>
+              <View
+                style={[
+                  styles.actionIconCircle,
+                  { backgroundColor: "#F5F3FF" },
+                ]}
+              >
                 <Ionicons name="people" size={20} color="#7C3AED" />
               </View>
               <Text style={styles.actionCardTitle}>Customers</Text>
@@ -513,7 +638,11 @@ export default function HomeScreen() {
               </View>
             </View>
             <View style={styles.activeTrucksTag}>
-              <MaterialCommunityIcons name="truck-fast" size={14} color="#059669" />
+              <MaterialCommunityIcons
+                name="truck-fast"
+                size={14}
+                color="#059669"
+              />
               <Text style={styles.activeTrucksText}>8 Mixers</Text>
             </View>
           </View>
@@ -526,7 +655,12 @@ export default function HomeScreen() {
                 <Text style={styles.siloPercent}>78%</Text>
               </View>
               <View style={styles.siloTrack}>
-                <View style={[styles.siloFill, { width: "78%", backgroundColor: "#3B82F6" }]} />
+                <View
+                  style={[
+                    styles.siloFill,
+                    { width: "78%", backgroundColor: "#3B82F6" },
+                  ]}
+                />
               </View>
             </View>
 
@@ -536,7 +670,12 @@ export default function HomeScreen() {
                 <Text style={styles.siloPercent}>85%</Text>
               </View>
               <View style={styles.siloTrack}>
-                <View style={[styles.siloFill, { width: "85%", backgroundColor: "#10B981" }]} />
+                <View
+                  style={[
+                    styles.siloFill,
+                    { width: "85%", backgroundColor: "#10B981" },
+                  ]}
+                />
               </View>
             </View>
 
@@ -546,7 +685,12 @@ export default function HomeScreen() {
                 <Text style={styles.siloPercent}>92%</Text>
               </View>
               <View style={styles.siloTrack}>
-                <View style={[styles.siloFill, { width: "92%", backgroundColor: "#F59E0B" }]} />
+                <View
+                  style={[
+                    styles.siloFill,
+                    { width: "92%", backgroundColor: "#F59E0B" },
+                  ]}
+                />
               </View>
             </View>
 
@@ -556,7 +700,12 @@ export default function HomeScreen() {
                 <Text style={styles.siloPercent}>95%</Text>
               </View>
               <View style={styles.siloTrack}>
-                <View style={[styles.siloFill, { width: "95%", backgroundColor: "#8B5CF6" }]} />
+                <View
+                  style={[
+                    styles.siloFill,
+                    { width: "95%", backgroundColor: "#8B5CF6" },
+                  ]}
+                />
               </View>
             </View>
           </View>
@@ -567,8 +716,14 @@ export default function HomeScreen() {
         ========================================== */}
         <View style={styles.sectionHeaderRow}>
           <View style={styles.sectionTitleGroup}>
-            <MaterialCommunityIcons name="clipboard-text-clock" size={18} color="#0B2A4A" />
-            <Text style={styles.sectionMainTitle}>Recent Orders & Dispatches</Text>
+            <MaterialCommunityIcons
+              name="clipboard-text-clock"
+              size={18}
+              color="#0B2A4A"
+            />
+            <Text style={styles.sectionMainTitle}>
+              Recent Orders & Dispatches
+            </Text>
           </View>
           <TouchableOpacity
             onPress={() => router.push("/(tabs)/orders")}
@@ -581,7 +736,9 @@ export default function HomeScreen() {
         {loading && orders.length === 0 ? (
           <View style={styles.inlineLoading}>
             <ActivityIndicator size="small" color="#2563EB" />
-            <Text style={styles.inlineLoadingText}>Loading orders from plant...</Text>
+            <Text style={styles.inlineLoadingText}>
+              Loading orders from plant...
+            </Text>
           </View>
         ) : (
           orders.slice(0, 3).map((item) => {
@@ -589,12 +746,18 @@ export default function HomeScreen() {
             const totalQty = parseFloat(String(item.total_qty || "0"));
             const producedQty = parseFloat(String(item.produced_qty || "0"));
             const pct =
-              totalQty > 0 ? Math.min(100, Math.round((producedQty / totalQty) * 100)) : 0;
-            const refNumber = item.full_number || item.order_no || `SO/2627/${item.id}`;
-            const customerName = item.customer?.legal_name || "Commercial Customer";
+              totalQty > 0
+                ? Math.min(100, Math.round((producedQty / totalQty) * 100))
+                : 0;
+            const refNumber =
+              item.full_number || item.order_no || `SO/2627/${item.id}`;
+            const customerName =
+              item.customer?.legal_name || "Commercial Customer";
             const siteName = item.site?.name || "Delivery Site";
             const mixName =
-              item.mix_design?.design_name || item.mix_design?.name || "Concrete Mix";
+              item.mix_design?.design_name ||
+              item.mix_design?.name ||
+              "Concrete Mix";
 
             return (
               <TouchableOpacity
@@ -606,17 +769,29 @@ export default function HomeScreen() {
                 {/* Header: SO Reference & Status */}
                 <View style={styles.orderCardTop}>
                   <View style={styles.orderRefBadge}>
-                    <MaterialCommunityIcons name="file-document-outline" size={13} color="#2563EB" />
+                    <MaterialCommunityIcons
+                      name="file-document-outline"
+                      size={13}
+                      color="#2563EB"
+                    />
                     <Text style={styles.orderRefText}>{refNumber}</Text>
                   </View>
 
                   <View
                     style={[
                       styles.orderStatusBadge,
-                      { backgroundColor: statusMeta.bg, borderColor: statusMeta.border },
+                      {
+                        backgroundColor: statusMeta.bg,
+                        borderColor: statusMeta.border,
+                      },
                     ]}
                   >
-                    <Text style={[styles.orderStatusText, { color: statusMeta.text }]}>
+                    <Text
+                      style={[
+                        styles.orderStatusText,
+                        { color: statusMeta.text },
+                      ]}
+                    >
                       {statusMeta.label}
                     </Text>
                   </View>
@@ -636,7 +811,11 @@ export default function HomeScreen() {
                 {/* Concrete Mix & Dispatch Progress */}
                 <View style={styles.orderSpecRow}>
                   <View style={styles.orderMixPill}>
-                    <MaterialCommunityIcons name="layers-triple-outline" size={13} color="#475569" />
+                    <MaterialCommunityIcons
+                      name="layers-triple-outline"
+                      size={13}
+                      color="#475569"
+                    />
                     <Text style={styles.orderMixText} numberOfLines={1}>
                       {mixName}
                     </Text>
@@ -644,7 +823,11 @@ export default function HomeScreen() {
 
                   {item.concrete_pump ? (
                     <View style={styles.pumpBadge}>
-                      <Ionicons name="flash-outline" size={11} color="#D97706" />
+                      <Ionicons
+                        name="flash-outline"
+                        size={11}
+                        color="#D97706"
+                      />
                       <Text style={styles.pumpBadgeText}>
                         {item.concrete_pump.toUpperCase()} PUMP
                       </Text>
@@ -656,12 +839,17 @@ export default function HomeScreen() {
                 <View style={styles.orderProgressBox}>
                   <View style={styles.orderProgressLabels}>
                     <Text style={styles.progressQtyLabel}>
-                      Dispatched: <Text style={styles.progressQtyVal}>{producedQty} / {totalQty} m³</Text>
+                      Dispatched:{" "}
+                      <Text style={styles.progressQtyVal}>
+                        {producedQty} / {totalQty} m³
+                      </Text>
                     </Text>
                     <Text style={styles.progressPctText}>{pct}%</Text>
                   </View>
                   <View style={styles.orderProgressTrack}>
-                    <View style={[styles.orderProgressFill, { width: `${pct}%` }]} />
+                    <View
+                      style={[styles.orderProgressFill, { width: `${pct}%` }]}
+                    />
                   </View>
                 </View>
               </TouchableOpacity>
@@ -674,8 +862,14 @@ export default function HomeScreen() {
         ========================================== */}
         <View style={styles.sectionHeaderRow}>
           <View style={styles.sectionTitleGroup}>
-            <MaterialCommunityIcons name="account-search-outline" size={18} color="#0B2A4A" />
-            <Text style={styles.sectionMainTitle}>Commercial Pipeline Leads</Text>
+            <MaterialCommunityIcons
+              name="account-search-outline"
+              size={18}
+              color="#0B2A4A"
+            />
+            <Text style={styles.sectionMainTitle}>
+              Commercial Pipeline Leads
+            </Text>
           </View>
           <TouchableOpacity
             onPress={() => router.push("/(tabs)/leads")}
@@ -688,14 +882,30 @@ export default function HomeScreen() {
         {loading && leads.length === 0 ? (
           <View style={styles.inlineLoading}>
             <ActivityIndicator size="small" color="#2563EB" />
-            <Text style={styles.inlineLoadingText}>Loading leads pipeline...</Text>
+            <Text style={styles.inlineLoadingText}>
+              Loading leads pipeline...
+            </Text>
           </View>
         ) : (
           leads.slice(0, 3).map((item) => {
-            const clientTitle = item.company_name || item.contact_name || "Lead Client";
-            const projectTitle = item.project_name || item.delivery_location || "Project Location";
-            const grade = item.requirement || "M20 Grade";
-            const qty = item.estimated_quantity ? `${parseFloat(String(item.estimated_quantity))} m³` : "0 m³";
+            const clientTitle =
+              item.company_name || item.contact_name || "Lead Client";
+            const projectTitle =
+              item.project_name || item.delivery_location || "Project Location";
+            const mixName =
+              item.mix_design && typeof item.mix_design === "object"
+                ? item.mix_design.design_name ||
+                  item.mix_design.name ||
+                  item.mix_design.code
+                : typeof item.mix_design === "string" && item.mix_design.trim()
+                  ? item.mix_design.trim()
+                  : item.requirement && isNaN(Number(item.requirement))
+                    ? item.requirement
+                    : "Standard Mix";
+            const grade = mixName || "M20 Grade";
+            const qty = item.estimated_quantity
+              ? `${parseFloat(String(item.estimated_quantity))} m³`
+              : "0 m³";
             const value = formatCurrency(item.expected_value);
 
             return (
@@ -707,7 +917,11 @@ export default function HomeScreen() {
               >
                 <View style={styles.leadCardTop}>
                   <View style={styles.leadNumberBadge}>
-                    <Ionicons name="pricetag-outline" size={12} color="#4F46E5" />
+                    <Ionicons
+                      name="pricetag-outline"
+                      size={12}
+                      color="#4F46E5"
+                    />
                     <Text style={styles.leadNumberText}>
                       {item.lead_number || "Commercial Lead"}
                     </Text>
@@ -734,8 +948,14 @@ export default function HomeScreen() {
                 <View style={styles.leadFooterRow}>
                   <View style={styles.leadSpecsGroup}>
                     <View style={styles.leadSpecItem}>
-                      <MaterialCommunityIcons name="cube-outline" size={13} color="#2563EB" />
-                      <Text style={styles.leadSpecText}>{grade} · {qty}</Text>
+                      <MaterialCommunityIcons
+                        name="cube-outline"
+                        size={13}
+                        color="#2563EB"
+                      />
+                      <Text style={styles.leadSpecText}>
+                        {grade} · {qty}
+                      </Text>
                     </View>
                   </View>
 
