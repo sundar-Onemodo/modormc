@@ -8,17 +8,32 @@ export interface PlantInfo {
   entity_id?: number;
 }
 
+export interface UserShift {
+  id: number | null;
+  name: string;
+  start_time: string;
+  end_time: string;
+  grace_time: number;
+  working_hours: number;
+  is_night_shift: boolean;
+  effective_from: string | null;
+  effective_to: string | null;
+}
+
 export interface RmcUser {
   id: number;
   name: string;
   email: string;
   personnel_id: number | null;
-  mobile: string;
+  mobile: string | null;
+  shift?: UserShift | null;
 }
 
 export interface RmcAuthState {
   user: RmcUser | null;
   user_id: number | null;
+  shift: UserShift | null;
+  working_hours: number | null;
   token: string | null;
   token_type: string | null;
   expires_at?: string | null;
@@ -28,11 +43,17 @@ export interface RmcAuthState {
   isLoading: boolean;
   isError: boolean;
   errorMessage: string;
+  isCheckedIn: boolean;
+  checkInTime: string | null;
+  checkInTimestamp: number | null;
+  attendanceId: number | null;
 }
 
 const initialState: RmcAuthState = {
   user: null,
   user_id: null,
+  shift: null,
+  working_hours: null,
   token: null,
   token_type: null,
   expires_at: null,
@@ -42,6 +63,10 @@ const initialState: RmcAuthState = {
   isLoading: false,
   isError: false,
   errorMessage: "",
+  isCheckedIn: false,
+  checkInTime: null,
+  checkInTimestamp: null,
+  attendanceId: null,
 };
 
 export const loginUser = createAsyncThunk(
@@ -95,6 +120,8 @@ const authSlice = createSlice({
     resetRmcAuth: (state) => {
       state.user = null;
       state.user_id = null;
+      state.shift = null;
+      state.working_hours = null;
       state.token = null;
       state.token_type = null;
       state.expires_at = null;
@@ -104,9 +131,49 @@ const authSlice = createSlice({
       state.isLoading = false;
       state.isError = false;
       state.errorMessage = "";
+      state.isCheckedIn = false;
+      state.checkInTime = null;
+      state.checkInTimestamp = null;
+      state.attendanceId = null;
       AsyncStorage.removeItem("user_rmc").catch((err) =>
         console.log("Error removing user_rmc from storage", err),
       );
+      AsyncStorage.removeItem("rmc_attendance").catch((err) =>
+        console.log("Error removing rmc_attendance from storage", err),
+      );
+    },
+    setAttendanceState: (
+      state,
+      action: PayloadAction<{
+        isCheckedIn: boolean;
+        checkInTime?: string | null;
+        checkInTimestamp?: number | null;
+        attendanceId?: number | null;
+      }>,
+    ) => {
+      state.isCheckedIn = action.payload.isCheckedIn;
+      state.checkInTime = action.payload.checkInTime ?? null;
+      state.checkInTimestamp = action.payload.checkInTimestamp ?? null;
+      state.attendanceId = action.payload.attendanceId ?? null;
+    },
+    setCheckInSuccess: (
+      state,
+      action: PayloadAction<{
+        timestamp?: number;
+        timeStr?: string;
+        attendanceId?: number | null;
+      }>,
+    ) => {
+      state.isCheckedIn = true;
+      state.checkInTimestamp = action.payload.timestamp || Date.now();
+      state.checkInTime = action.payload.timeStr || new Date().toISOString();
+      state.attendanceId = action.payload.attendanceId ?? null;
+    },
+    setCheckOutSuccess: (state) => {
+      state.isCheckedIn = false;
+      state.checkInTimestamp = null;
+      state.checkInTime = null;
+      state.attendanceId = null;
     },
     setSelectedPlant: (
       state,
@@ -127,6 +194,12 @@ const authSlice = createSlice({
       if (userData) {
         state.user = userData.user || null;
         state.user_id = userData.user?.id || null;
+        state.shift = userData.user?.shift || userData.shift || null;
+        state.working_hours =
+          userData.user?.shift?.working_hours ??
+          userData.shift?.working_hours ??
+          state.working_hours ??
+          null;
         state.token = userData.token || null;
         state.token_type = userData.token_type || null;
         state.expires_at = userData.expires_at || null;
@@ -184,6 +257,11 @@ const authSlice = createSlice({
         state.errorMessage = "";
         state.user = action.payload.user;
         state.user_id = action.payload?.user?.id || null;
+        state.shift = action.payload?.user?.shift || action.payload?.shift || null;
+        state.working_hours =
+          action.payload?.user?.shift?.working_hours ??
+          action.payload?.shift?.working_hours ??
+          (action.payload?.user?.shift?.working_hours === 0 ? 0 : 10);
         state.token = action.payload.token;
         state.token_type = action.payload.token_type;
         state.expires_at = action.payload.expires_at || null;
@@ -212,9 +290,27 @@ const authSlice = createSlice({
 
 export const {
   resetRmcAuth,
+  setAttendanceState,
+  setCheckInSuccess,
+  setCheckOutSuccess,
   setSelectedPlant,
   setSeletedPlant,
   setRmcUserFromStorage,
   updateUser,
 } = authSlice.actions;
+
+export const selectAuth = (state: { auth: RmcAuthState }) => state?.auth;
+export const selectUser = (state: { auth: RmcAuthState }) => state?.auth?.user;
+export const selectShift = (state: { auth: RmcAuthState }) => state?.auth?.shift;
+export const selectWorkingHours = (state: { auth: RmcAuthState }) =>
+  state?.auth?.working_hours;
+export const selectIsCheckedIn = (state: { auth: RmcAuthState }) =>
+  state?.auth?.isCheckedIn ?? false;
+export const selectCheckInTime = (state: { auth: RmcAuthState }) =>
+  state?.auth?.checkInTime ?? null;
+export const selectCheckInTimestamp = (state: { auth: RmcAuthState }) =>
+  state?.auth?.checkInTimestamp ?? null;
+export const selectAttendanceId = (state: { auth: RmcAuthState }) =>
+  state?.auth?.attendanceId ?? null;
+
 export default authSlice.reducer;

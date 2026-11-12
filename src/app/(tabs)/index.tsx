@@ -1,10 +1,14 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import MaterialCommunityIcons from "@expo/vector-icons/MaterialCommunityIcons";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import axios from "axios";
 import { router, useFocusEffect } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
+  Animated,
+  Modal,
   Platform,
   RefreshControl,
   ScrollView,
@@ -15,9 +19,14 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useSelector } from "react-redux";
+import { useDispatch, useSelector } from "react-redux";
 import { baseURL } from "../../../baseurl/baseURL";
-import { RootState } from "../../../store/store";
+import {
+  setAttendanceState,
+  setCheckInSuccess,
+  setCheckOutSuccess,
+} from "../../../store/authSice";
+import { AppDispatch, RootState } from "../../../store/store";
 
 // ==========================================
 // INTERFACES (Matching Live APIs)
@@ -224,28 +233,491 @@ async function fetchDashboardApis(
   ]);
 }
 
-export default function HomeScreen() {
-  const { token, plant_id, plant_name } = useSelector(
-    (state: RootState) => state.auth,
-  );
+// Attendance Modal State Interface
+interface AttendanceModalState {
+  visible: boolean;
+  type: "checkin" | "checkout" | "error" | "info";
+  title: string;
+  subtitle: string;
+  badge?: string;
+  details?: {
+    attendanceId?: number | string | null;
+    date?: string;
+    time?: string;
+    shiftName?: string;
+    workingHours?: number | string;
+    workedHours?: string | number;
+    status?: string;
+    isLate?: boolean;
+    lateHours?: string | number;
+    notes?: string;
+    message?: string;
+  };
+}
 
-  console.log("PALNT_ID:", plant_id);
+// Standalone Attendance Check-In API helper
+async function callAttendanceCheckInApi(
+  token: string | null,
+  plantId: number | null | undefined,
+) {
+  const headers: Record<string, string> = {
+    Accept: "application/json",
+    "Content-Type": "application/json",
+  };
+  if (token) headers.Authorization = `Bearer ${token}`;
+  if (plantId !== null && plantId !== undefined) {
+    headers["X-Plant-Id"] = String(plantId);
+  }
+
+  const urlV1 = `${baseURL}v1/attendances/check-in`;
+  const urlDirect = `${baseURL}attendances/check-in`;
+
+  try {
+    const res = await axios.post(urlV1, {}, { headers, timeout: 15000 });
+    return res.data;
+  } catch (err: any) {
+    if (err?.response?.status === 404) {
+      const res = await axios.post(urlDirect, {}, { headers, timeout: 15000 });
+      return res.data;
+    }
+    throw err;
+  }
+}
+
+// Standalone Attendance Check-Out API helper
+// api - /attendances/{attendance}/check-out
+// params - {attendance: id}
+async function callAttendanceCheckOutApi(
+  attendanceId: number | string | null | undefined,
+  token: string | null,
+  plantId: number | null | undefined,
+) {
+  const headers: Record<string, string> = {
+    Accept: "application/json",
+  };
+  if (token) headers.Authorization = `Bearer ${token}`;
+  if (plantId !== null && plantId !== undefined) {
+    headers["X-Plant-Id"] = String(plantId);
+  }
+
+  const queryParams = attendanceId ? { attendance: attendanceId } : undefined;
+
+  // Primary URL with {attendance} route parameter: /attendances/{attendance}/check-out
+  const urlV1 = attendanceId
+    ? `${baseURL}v1/attendances/${attendanceId}/check-out`
+    : `${baseURL}v1/attendances/check-out`;
+  const urlDirect = attendanceId
+    ? `${baseURL}attendances/${attendanceId}/check-out`
+    : `${baseURL}attendances/check-out`;
+
+  try {
+    const res = await axios.post(
+      urlV1,
+      attendanceId ? { attendance: attendanceId } : {},
+      { headers, params: queryParams, timeout: 15000 },
+    );
+    return res.data;
+  } catch (err: any) {
+    if (err?.response?.status === 404) {
+      try {
+        const resDirect = await axios.post(
+          urlDirect,
+          attendanceId ? { attendance: attendanceId } : {},
+          { headers, params: queryParams, timeout: 15000 },
+        );
+        return resDirect.data;
+      } catch (err2: any) {
+        if (err2?.response?.status === 404 && attendanceId) {
+          const resFallback = await axios.post(
+            `${baseURL}v1/attendances/check-out`,
+            { attendance: attendanceId },
+            { headers, params: queryParams, timeout: 15000 },
+          );
+          return resFallback.data;
+        }
+        throw err2;
+      }
+    }
+    throw err;
+  }
+}
+
+export default function HomeScreen() {
+  const dispatch = useDispatch<AppDispatch>();
+  const {
+    token,
+    plant_id,
+    plant_name,
+    user,
+    shift,
+    working_hours,
+    isCheckedIn,
+    checkInTime,
+    checkInTimestamp,
+    attendanceId,
+  } = useSelector((state: RootState) => state.auth);
 
   const [orders, setOrders] = useState<LiveOrder[]>(SAMPLE_ORDERS);
   const [leads, setLeads] = useState<LiveLead[]>(SAMPLE_LEADS);
   const [quotations, setQuotations] = useState<LiveQuotation[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [refreshing, setRefreshing] = useState<boolean>(false);
+  const [attendanceLoading, setAttendanceLoading] = useState<boolean>(false);
+  const [nowTick, setNowTick] = useState<number>(() => Date.now());
 
-  // Status Bar Sync
+  // Animated Modal State
+  const [modalAnim] = useState(() => new Animated.Value(0));
+  const [modalData, setModalData] = useState<AttendanceModalState>({
+    visible: false,
+    type: "checkin",
+    title: "",
+    subtitle: "",
+  });
+
+  const showAttendanceModal = useCallback(
+    (data: Omit<AttendanceModalState, "visible">) => {
+      setModalData({ ...data, visible: true });
+      modalAnim.setValue(0);
+      Animated.spring(modalAnim, {
+        toValue: 1,
+        tension: 65,
+        friction: 7,
+        useNativeDriver: true,
+      }).start();
+    },
+    [modalAnim],
+  );
+
+  const hideAttendanceModal = useCallback(() => {
+    Animated.timing(modalAnim, {
+      toValue: 0,
+      duration: 180,
+      useNativeDriver: true,
+    }).start(() => {
+      setModalData((prev) => ({ ...prev, visible: false }));
+    });
+  }, [modalAnim]);
+
+  // Working Hours calculation (from shift in login response / auth state)
+  const shiftHours = useMemo(() => {
+    const hrs = Number(
+      shift?.working_hours ??
+        user?.shift?.working_hours ??
+        working_hours ??
+        10,
+    );
+    return hrs > 0 ? hrs : 10;
+  }, [shift, user, working_hours]);
+
+  const maxDurationMs = shiftHours * 60 * 60 * 1000;
+
+  // Auto-checkout when working hours have elapsed without manual checkout
+  const performAutoCheckout = useCallback(
+    async (timestamp: number, currentAttendanceId?: number | null) => {
+      const elapsed = Date.now() - timestamp;
+      if (elapsed >= maxDurationMs) {
+        console.log(
+          `[AutoCheckout] Working hours exceeded (${elapsed}ms >= ${maxDurationMs}ms). Triggering check-out API directly.`,
+        );
+        const idToSend = currentAttendanceId ?? attendanceId;
+        try {
+          await callAttendanceCheckOutApi(idToSend, token, plant_id);
+        } catch (err: any) {
+          console.log(
+            "[AutoCheckout] Check-out API call error (proceeding with local reset):",
+            err?.response?.data || err?.message || err,
+          );
+        } finally {
+          dispatch(setCheckOutSuccess());
+          await AsyncStorage.removeItem("rmc_attendance").catch(() => {});
+          showAttendanceModal({
+            type: "info",
+            title: "Shift Concluded Automatically",
+            subtitle: `Your ${shiftHours}-hour working shift has concluded. You have been automatically checked out.`,
+            badge: "AUTO CHECK-OUT",
+            details: {
+              attendanceId: idToSend,
+              shiftName: shift?.name || "Personnel shift",
+              workingHours: shiftHours,
+            },
+          });
+        }
+      }
+    },
+    [
+      maxDurationMs,
+      attendanceId,
+      token,
+      plant_id,
+      dispatch,
+      showAttendanceModal,
+      shiftHours,
+      shift,
+    ],
+  );
+
+  // Sync attendance state from AsyncStorage on initial load
+  useEffect(() => {
+    AsyncStorage.getItem("rmc_attendance")
+      .then((stored) => {
+        if (stored) {
+          try {
+            const data = JSON.parse(stored);
+            if (data && typeof data.isCheckedIn === "boolean") {
+              dispatch(
+                setAttendanceState({
+                  isCheckedIn: data.isCheckedIn,
+                  checkInTime: data.checkInTime || null,
+                  checkInTimestamp: data.checkInTimestamp || null,
+                  attendanceId: data.attendanceId ?? null,
+                }),
+              );
+              if (data.isCheckedIn && data.checkInTimestamp) {
+                performAutoCheckout(
+                  data.checkInTimestamp,
+                  data.attendanceId ?? null,
+                );
+              }
+            }
+          } catch (e) {
+            console.log("Error parsing stored attendance:", e);
+          }
+        }
+      })
+      .catch((err) => console.log("Error loading saved attendance:", err));
+  }, [dispatch, performAutoCheckout]);
+
+  // Regular interval to tick time & verify working hours auto checkout
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setNowTick(Date.now());
+      if (isCheckedIn && checkInTimestamp) {
+        performAutoCheckout(checkInTimestamp, attendanceId);
+      }
+    }, 30000);
+    return () => clearInterval(interval);
+  }, [isCheckedIn, checkInTimestamp, attendanceId, performAutoCheckout]);
+
+  // Status Bar Sync & auto checkout check on screen focus
   useFocusEffect(
     useCallback(() => {
       StatusBar.setBarStyle("light-content");
       if (Platform.OS === "android") {
         StatusBar.setBackgroundColor("#0B2A4A");
       }
-    }, []),
+      setNowTick(Date.now());
+      if (isCheckedIn && checkInTimestamp) {
+        performAutoCheckout(checkInTimestamp, attendanceId);
+      }
+    }, [isCheckedIn, checkInTimestamp, attendanceId, performAutoCheckout]),
   );
+
+  // Manual Check In Handler
+  const handleCheckIn = async () => {
+    if (attendanceLoading) return;
+    setAttendanceLoading(true);
+    try {
+      const res = await callAttendanceCheckInApi(token, plant_id);
+      console.log("Check-in API success:", res);
+
+      const record = res?.data || {};
+      const newAttendanceId = record?.id ?? res?.id ?? null;
+
+      // Extract time from response or fallback to current local time
+      let displayTime = new Date().toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: true,
+      });
+      const displayDate =
+        record?.attendance_date || new Date().toISOString().split("T")[0];
+
+      if (record?.check_in) {
+        try {
+          const d = new Date(record.check_in.replace(" ", "T"));
+          if (!isNaN(d.getTime())) {
+            displayTime = d.toLocaleTimeString([], {
+              hour: "2-digit",
+              minute: "2-digit",
+              hour12: true,
+            });
+          }
+        } catch {
+          // Fallback to local time if parsing fails
+        }
+      }
+
+      const now = Date.now();
+
+      dispatch(
+        setCheckInSuccess({
+          timestamp: now,
+          timeStr: displayTime,
+          attendanceId: newAttendanceId,
+        }),
+      );
+      await AsyncStorage.setItem(
+        "rmc_attendance",
+        JSON.stringify({
+          isCheckedIn: true,
+          checkInTimestamp: now,
+          checkInTime: displayTime,
+          attendanceId: newAttendanceId,
+        }),
+      );
+
+      // Trigger animated model UI with full response details
+      showAttendanceModal({
+        type: "checkin",
+        title: "Checked In Successfully!",
+        subtitle: "Your attendance check-in has been registered.",
+        badge: "CHECK-IN CONFIRMED",
+        details: {
+          attendanceId: newAttendanceId,
+          time: displayTime,
+          date: displayDate,
+          status: record?.status || "present",
+          shiftName: record?.shift?.name || shift?.name || "Personnel shift",
+          workingHours:
+            record?.shift?.working_hours ||
+            record?.scheduled_hours ||
+            shiftHours,
+          isLate: Boolean(record?.is_late),
+          lateHours: record?.late_hours,
+          notes: record?.notes || "Starting work",
+        },
+      });
+    } catch (err: any) {
+      console.log("Check-in error:", err?.response?.data || err?.message || err);
+      const errMsg =
+        err?.response?.data?.message ||
+        err?.response?.data?.error ||
+        err?.message ||
+        "Failed to check in. Please try again.";
+
+      showAttendanceModal({
+        type: "error",
+        title: "Check-In Unsuccessful",
+        subtitle: errMsg,
+        badge: "ATTENDANCE NOTICE",
+      });
+    } finally {
+      setAttendanceLoading(false);
+    }
+  };
+
+  // Manual Check Out Handler
+  const handleCheckOut = async () => {
+    if (attendanceLoading) return;
+
+    Alert.alert(
+      "Confirm Check Out",
+      "Are you sure you want to end your shift and check out now?",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Check Out",
+          style: "destructive",
+          onPress: async () => {
+            setAttendanceLoading(true);
+            try {
+              const idToSend = attendanceId;
+              console.log("Checking out with attendance id:", idToSend);
+              const res = await callAttendanceCheckOutApi(
+                idToSend,
+                token,
+                plant_id,
+              );
+              console.log("Check-out API success:", res);
+
+              const record = res?.data || {};
+
+              let displayOutTime = new Date().toLocaleTimeString([], {
+                hour: "2-digit",
+                minute: "2-digit",
+                hour12: true,
+              });
+              if (record?.check_out) {
+                try {
+                  const d = new Date(record.check_out.replace(" ", "T"));
+                  if (!isNaN(d.getTime())) {
+                    displayOutTime = d.toLocaleTimeString([], {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                      hour12: true,
+                    });
+                  }
+                } catch {
+          // Fallback to local time if parsing fails
+        }
+              }
+
+              dispatch(setCheckOutSuccess());
+              await AsyncStorage.removeItem("rmc_attendance").catch(() => {});
+
+              // Trigger animated model UI with full checkout details
+              showAttendanceModal({
+                type: "checkout",
+                title: "Checked Out Successfully!",
+                subtitle:
+                  "Your shift attendance has ended. Have a great evening!",
+                badge: "SHIFT COMPLETED",
+                details: {
+                  attendanceId: idToSend,
+                  time: displayOutTime,
+                  date:
+                    record?.attendance_date ||
+                    new Date().toISOString().split("T")[0],
+                  status: record?.status || "completed",
+                  shiftName: shift?.name || "Personnel shift",
+                  workedHours: record?.worked_hours,
+                  message: res?.message,
+                },
+              });
+            } catch (err: any) {
+              console.log(
+                "Check-out error:",
+                err?.response?.data || err?.message || err,
+              );
+              const errMsg =
+                err?.response?.data?.message ||
+                err?.response?.data?.error ||
+                err?.message ||
+                "Failed to check out. Please try again.";
+
+              showAttendanceModal({
+                type: "error",
+                title: "Check-Out Unsuccessful",
+                subtitle: errMsg,
+                badge: "ATTENDANCE NOTICE",
+              });
+            } finally {
+              setAttendanceLoading(false);
+            }
+          },
+        },
+      ],
+    );
+  };
+
+  // Live formatted elapsed duration
+  const elapsedFormatted = useMemo(() => {
+    if (!isCheckedIn || !checkInTimestamp) return "";
+    const diffSec = Math.max(0, Math.floor((nowTick - checkInTimestamp) / 1000));
+    const hrs = Math.floor(diffSec / 3600);
+    const mins = Math.floor((diffSec % 3600) / 60);
+    if (hrs > 0) return `${hrs}h ${mins}m elapsed`;
+    return `${mins}m elapsed`;
+  }, [isCheckedIn, checkInTimestamp, nowTick]);
+
+  const shiftTimingText = useMemo(() => {
+    const start = shift?.start_time ? shift.start_time.slice(0, 5) : "";
+    const end = shift?.end_time ? shift.end_time.slice(0, 5) : "";
+    if (start && end) {
+      return `${start} - ${end} (${shiftHours} hrs)`;
+    }
+    return `${shiftHours} Hours Shift`;
+  }, [shift, shiftHours]);
 
   useEffect(() => {
     let isCancelled = false;
@@ -426,6 +898,71 @@ export default function HomeScreen() {
                   refreshing ? { transform: [{ rotate: "45deg" }] } : undefined
                 }
               />
+            </TouchableOpacity>
+          </View>
+
+          {/* ==========================================
+              ATTENDANCE / SHIFT CHECK-IN & CHECK-OUT CARD
+          ========================================== */}
+          <View style={styles.attendanceCard}>
+            <TouchableOpacity
+              style={styles.attendanceLeft}
+              onPress={() => router.push("/attendancehistory")}
+              activeOpacity={0.8}
+            >
+              <View style={styles.attendanceStatusRow}>
+                <View
+                  style={[
+                    styles.statusIndicatorDot,
+                    isCheckedIn ? styles.dotGreen : styles.dotAmber,
+                  ]}
+                />
+                <Text
+                  style={[
+                    styles.attendanceStatusText,
+                    isCheckedIn ? styles.textGreen : styles.textAmber,
+                  ]}
+                >
+                  {isCheckedIn ? "CURRENTLY CHECKED IN" : "NOT CHECKED IN"}
+                </Text>
+                <View style={styles.attendanceHistoryLink}>
+                  <Text style={styles.attendanceHistoryLinkText}>History →</Text>
+                </View>
+              </View>
+
+              <Text style={styles.attendanceShiftTitle} numberOfLines={1}>
+                {shift?.name || "Personnel Shift"} · {shiftHours}h Shift
+              </Text>
+
+              <Text style={styles.attendanceDetailText} numberOfLines={1}>
+                {isCheckedIn
+                  ? `In at ${checkInTime || "Today"}${elapsedFormatted ? ` · ${elapsedFormatted}` : ""}`
+                  : `Shift: ${shiftTimingText}`}
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                styles.attendanceButton,
+                isCheckedIn ? styles.checkOutBtn : styles.checkInBtn,
+              ]}
+              onPress={isCheckedIn ? handleCheckOut : handleCheckIn}
+              disabled={attendanceLoading}
+              activeOpacity={0.82}
+            >
+              {attendanceLoading ? (
+                <ActivityIndicator size="small" color="#FFFFFF" />
+              ) : isCheckedIn ? (
+                <View style={styles.attendanceBtnContent}>
+                  <Ionicons name="log-out-outline" size={17} color="#FFFFFF" />
+                  <Text style={styles.attendanceBtnText}>Check Out</Text>
+                </View>
+              ) : (
+                <View style={styles.attendanceBtnContent}>
+                  <Ionicons name="log-in-outline" size={17} color="#FFFFFF" />
+                  <Text style={styles.attendanceBtnText}>Check In</Text>
+                </View>
+              )}
             </TouchableOpacity>
           </View>
 
@@ -968,6 +1505,264 @@ export default function HomeScreen() {
 
         <View style={{ height: 30 }} />
       </ScrollView>
+
+      {/* ==========================================
+          ANIMATED ATTENDANCE MODAL ALERT
+      ========================================== */}
+      <Modal
+        visible={modalData.visible}
+        transparent
+        animationType="none"
+        onRequestClose={hideAttendanceModal}
+      >
+        <View style={styles.modalOverlay}>
+          <Animated.View
+            style={[
+              styles.modalCard,
+              {
+                opacity: modalAnim,
+                transform: [
+                  {
+                    scale: modalAnim.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [0.82, 1],
+                    }),
+                  },
+                ],
+              },
+            ]}
+          >
+            {/* Modal Top Bar Accent */}
+            <View
+              style={[
+                styles.modalTopBar,
+                modalData.type === "checkin"
+                  ? { backgroundColor: "#10B981" }
+                  : modalData.type === "checkout"
+                    ? { backgroundColor: "#2563EB" }
+                    : modalData.type === "error"
+                      ? { backgroundColor: "#DC2626" }
+                      : { backgroundColor: "#D97706" },
+              ]}
+            />
+
+            <View style={styles.modalBody}>
+              {/* Hero Circular Icon with Layered Pulse Ring */}
+              <View
+                style={[
+                  styles.modalIconOuter,
+                  modalData.type === "checkin"
+                    ? styles.outerGreen
+                    : modalData.type === "checkout"
+                      ? styles.outerBlue
+                      : modalData.type === "error"
+                        ? styles.outerRed
+                        : styles.outerAmber,
+                ]}
+              >
+                <View
+                  style={[
+                    styles.modalIconInner,
+                    modalData.type === "checkin"
+                      ? styles.innerGreen
+                      : modalData.type === "checkout"
+                        ? styles.innerBlue
+                        : modalData.type === "error"
+                          ? styles.innerRed
+                          : styles.innerAmber,
+                  ]}
+                >
+                  <Ionicons
+                    name={
+                      modalData.type === "checkin"
+                        ? "checkmark-circle"
+                        : modalData.type === "checkout"
+                          ? "checkmark-done-circle"
+                          : modalData.type === "error"
+                            ? "alert-circle"
+                            : "time"
+                    }
+                    size={38}
+                    color={
+                      modalData.type === "checkin"
+                        ? "#059669"
+                        : modalData.type === "checkout"
+                          ? "#2563EB"
+                          : modalData.type === "error"
+                            ? "#DC2626"
+                            : "#D97706"
+                    }
+                  />
+                </View>
+              </View>
+
+              {/* Status Chip Badge */}
+              {modalData.badge ? (
+                <View
+                  style={[
+                    styles.modalBadge,
+                    modalData.type === "checkin"
+                      ? styles.badgeGreen
+                      : modalData.type === "checkout"
+                        ? styles.badgeBlue
+                        : modalData.type === "error"
+                          ? styles.badgeRed
+                          : styles.badgeAmber,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.modalBadgeText,
+                      modalData.type === "checkin"
+                        ? styles.badgeTextGreen
+                        : modalData.type === "checkout"
+                          ? styles.badgeTextBlue
+                          : modalData.type === "error"
+                            ? styles.badgeTextRed
+                            : styles.badgeTextAmber,
+                    ]}
+                  >
+                    {modalData.badge}
+                  </Text>
+                </View>
+              ) : null}
+
+              {/* Title & Subtitle */}
+              <Text style={styles.modalTitle}>{modalData.title}</Text>
+              <Text style={styles.modalSubtitle}>{modalData.subtitle}</Text>
+
+              {/* Response Details Breakdown Card */}
+              {modalData.details ? (
+                <View style={styles.modalDetailsCard}>
+                  {modalData.details.attendanceId ? (
+                    <View style={styles.detailRow}>
+                      <Text style={styles.detailLabel}>Attendance ID</Text>
+                      <View style={styles.idChip}>
+                        <Text style={styles.idChipText}>
+                          #{modalData.details.attendanceId}
+                        </Text>
+                      </View>
+                    </View>
+                  ) : null}
+
+                  {modalData.details.time ? (
+                    <View style={styles.detailRow}>
+                      <Text style={styles.detailLabel}>
+                        {modalData.type === "checkin"
+                          ? "Check-In Time"
+                          : "Check-Out Time"}
+                      </Text>
+                      <Text style={styles.detailValBold}>
+                        {modalData.details.time}
+                      </Text>
+                    </View>
+                  ) : null}
+
+                  {modalData.details.date ? (
+                    <View style={styles.detailRow}>
+                      <Text style={styles.detailLabel}>Date</Text>
+                      <Text style={styles.detailVal}>
+                        {modalData.details.date}
+                      </Text>
+                    </View>
+                  ) : null}
+
+                  {modalData.details.shiftName ? (
+                    <View style={styles.detailRow}>
+                      <Text style={styles.detailLabel}>Shift</Text>
+                      <Text style={styles.detailVal} numberOfLines={1}>
+                        {modalData.details.shiftName}
+                        {modalData.details.workingHours
+                          ? ` (${modalData.details.workingHours}h)`
+                          : ""}
+                      </Text>
+                    </View>
+                  ) : null}
+
+                  {modalData.details.status ? (
+                    <View style={styles.detailRow}>
+                      <Text style={styles.detailLabel}>Status</Text>
+                      <View
+                        style={[
+                          styles.statusChip,
+                          modalData.type === "checkout"
+                            ? { backgroundColor: "#EFF6FF" }
+                            : { backgroundColor: "#ECFDF5" },
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.statusChipText,
+                            modalData.type === "checkout"
+                              ? { color: "#2563EB" }
+                              : { color: "#059669" },
+                          ]}
+                        >
+                          {String(modalData.details.status).toUpperCase()}
+                        </Text>
+                      </View>
+                    </View>
+                  ) : null}
+
+                  {modalData.details.workedHours ? (
+                    <View style={styles.detailRow}>
+                      <Text style={styles.detailLabel}>Hours Worked</Text>
+                      <Text
+                        style={[styles.detailValBold, { color: "#2563EB" }]}
+                      >
+                        {modalData.details.workedHours} hrs
+                      </Text>
+                    </View>
+                  ) : null}
+
+                  {/* Late Arrival Badge if marked late */}
+                  {modalData.details.isLate ? (
+                    <View style={styles.lateBanner}>
+                      <Ionicons
+                        name="warning-outline"
+                        size={15}
+                        color="#B45309"
+                      />
+                      <Text style={styles.lateBannerText}>
+                        Late Arrival ({modalData.details.lateHours || "0"} hrs)
+                      </Text>
+                    </View>
+                  ) : null}
+                </View>
+              ) : null}
+
+              {/* Action Button */}
+              <TouchableOpacity
+                style={[
+                  styles.modalActionButton,
+                  modalData.type === "checkin"
+                    ? styles.actionBtnGreen
+                    : modalData.type === "checkout"
+                      ? styles.actionBtnBlue
+                      : styles.actionBtnNavy,
+                ]}
+                onPress={hideAttendanceModal}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.modalActionText}>
+                  {modalData.type === "checkin"
+                    ? "Start Working Day"
+                    : modalData.type === "checkout"
+                      ? "Got It"
+                      : "Dismiss"}
+                </Text>
+                <Ionicons
+                  name={
+                    modalData.type === "checkin" ? "arrow-forward" : "checkmark"
+                  }
+                  size={16}
+                  color="#FFFFFF"
+                />
+              </TouchableOpacity>
+            </View>
+          </Animated.View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -1054,6 +1849,111 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255, 255, 255, 0.12)",
     justifyContent: "center",
     alignItems: "center",
+  },
+
+  // Attendance & Shift Card
+  attendanceCard: {
+    backgroundColor: "rgba(255, 255, 255, 0.08)",
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.12)",
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginBottom: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  attendanceLeft: {
+    flex: 1,
+    marginRight: 10,
+  },
+  attendanceStatusRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 3,
+  },
+  statusIndicatorDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+    marginRight: 6,
+  },
+  dotGreen: {
+    backgroundColor: "#10B981",
+  },
+  dotAmber: {
+    backgroundColor: "#F59E0B",
+  },
+  attendanceStatusText: {
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: 0.6,
+  },
+  textGreen: {
+    color: "#34D399",
+  },
+  textAmber: {
+    color: "#FBBF24",
+  },
+  attendanceHistoryLink: {
+    marginLeft: 6,
+    backgroundColor: "rgba(255, 255, 255, 0.14)",
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  attendanceHistoryLinkText: {
+    fontSize: 9,
+    fontWeight: "700",
+    color: "#93C5FD",
+  },
+  attendanceShiftTitle: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#FFFFFF",
+    letterSpacing: 0.2,
+  },
+  attendanceDetailText: {
+    fontSize: 11,
+    color: "#94A3B8",
+    marginTop: 2,
+    fontWeight: "500",
+  },
+  attendanceButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 10,
+    justifyContent: "center",
+    alignItems: "center",
+    minWidth: 106,
+  },
+  checkInBtn: {
+    backgroundColor: "#059669",
+    shadowColor: "#059669",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.3,
+    shadowRadius: 5,
+    elevation: 3,
+  },
+  checkOutBtn: {
+    backgroundColor: "#DC2626",
+    shadowColor: "#DC2626",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.3,
+    shadowRadius: 5,
+    elevation: 3,
+  },
+  attendanceBtnContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  attendanceBtnText: {
+    color: "#FFFFFF",
+    fontSize: 13,
+    fontWeight: "700",
+    letterSpacing: 0.3,
   },
 
   // KPI 2x2 Grid
@@ -1526,5 +2426,197 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "800",
     color: "#059669",
+  },
+
+  // ==========================================
+  // ANIMATED ATTENDANCE MODAL STYLES
+  // ==========================================
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(11, 42, 74, 0.65)",
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 20,
+  },
+  modalCard: {
+    width: "100%",
+    maxWidth: 360,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 24,
+    overflow: "hidden",
+    shadowColor: "#0B2A4A",
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.3,
+    shadowRadius: 20,
+    elevation: 12,
+  },
+  modalTopBar: {
+    height: 5,
+    width: "100%",
+  },
+  modalBody: {
+    paddingHorizontal: 20,
+    paddingTop: 24,
+    paddingBottom: 20,
+    alignItems: "center",
+  },
+  modalIconOuter: {
+    width: 76,
+    height: 76,
+    borderRadius: 38,
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 12,
+  },
+  modalIconInner: {
+    width: 58,
+    height: 58,
+    borderRadius: 29,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  outerGreen: { backgroundColor: "#ECFDF5" },
+  innerGreen: { backgroundColor: "#D1FAE5" },
+  outerBlue: { backgroundColor: "#EFF6FF" },
+  innerBlue: { backgroundColor: "#DBEAFE" },
+  outerRed: { backgroundColor: "#FEF2F2" },
+  innerRed: { backgroundColor: "#FEE2E2" },
+  outerAmber: { backgroundColor: "#FFFBEB" },
+  innerAmber: { backgroundColor: "#FEF3C7" },
+
+  modalBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+    borderRadius: 12,
+    marginBottom: 8,
+  },
+  badgeGreen: { backgroundColor: "#ECFDF5" },
+  badgeBlue: { backgroundColor: "#EFF6FF" },
+  badgeRed: { backgroundColor: "#FEF2F2" },
+  badgeAmber: { backgroundColor: "#FFFBEB" },
+  modalBadgeText: {
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: 0.7,
+  },
+  badgeTextGreen: { color: "#059669" },
+  badgeTextBlue: { color: "#2563EB" },
+  badgeTextRed: { color: "#DC2626" },
+  badgeTextAmber: { color: "#D97706" },
+
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: "800",
+    color: "#0F172A",
+    textAlign: "center",
+    marginBottom: 4,
+  },
+  modalSubtitle: {
+    fontSize: 13,
+    color: "#64748B",
+    textAlign: "center",
+    lineHeight: 18,
+    marginBottom: 16,
+    paddingHorizontal: 10,
+  },
+  modalDetailsCard: {
+    width: "100%",
+    backgroundColor: "#F8FAFC",
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    padding: 12,
+    marginBottom: 18,
+    gap: 8,
+  },
+  detailRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  detailLabel: {
+    fontSize: 12,
+    color: "#64748B",
+    fontWeight: "500",
+  },
+  detailVal: {
+    fontSize: 12,
+    color: "#0F172A",
+    fontWeight: "600",
+  },
+  detailValBold: {
+    fontSize: 13,
+    color: "#0F172A",
+    fontWeight: "700",
+  },
+  idChip: {
+    backgroundColor: "#EEF2F6",
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  idChipText: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#334155",
+  },
+  statusChip: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  statusChipText: {
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: 0.4,
+  },
+  lateBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "#FEF3C7",
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    marginTop: 4,
+  },
+  lateBannerText: {
+    fontSize: 11,
+    color: "#92400E",
+    fontWeight: "600",
+  },
+  modalActionButton: {
+    width: "100%",
+    height: 48,
+    borderRadius: 12,
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+    gap: 8,
+  },
+  actionBtnGreen: {
+    backgroundColor: "#059669",
+    shadowColor: "#059669",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.25,
+    shadowRadius: 5,
+    elevation: 3,
+  },
+  actionBtnBlue: {
+    backgroundColor: "#2563EB",
+    shadowColor: "#2563EB",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.25,
+    shadowRadius: 5,
+    elevation: 3,
+  },
+  actionBtnNavy: {
+    backgroundColor: "#0B2A4A",
+  },
+  modalActionText: {
+    color: "#FFFFFF",
+    fontSize: 14,
+    fontWeight: "700",
+    letterSpacing: 0.3,
   },
 });

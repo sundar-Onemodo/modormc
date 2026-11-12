@@ -2,11 +2,12 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import MaterialCommunityIcons from "@expo/vector-icons/MaterialCommunityIcons";
 import axios from "axios";
 import { router } from "expo-router";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
   FlatList,
+  Keyboard,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -138,13 +139,41 @@ export default function CreateLeadScreen() {
   const { token, plant_id, plant_name } = useSelector(
     (state: RootState) => state.auth,
   );
-  console.log("PLANT_Id:", plant_id);
-
   const cachedMixDesigns = useSelector(
     (state: RootState) => state.quotation?.mixDesigns,
   );
 
   const scrollViewRef = useRef<ScrollView>(null);
+  const [keyboardPadding, setKeyboardPadding] = useState<number>(60);
+
+  const scrollToBottom = useCallback(() => {
+    setTimeout(() => {
+      scrollViewRef.current?.scrollToEnd({ animated: true });
+    }, 100);
+    setTimeout(() => {
+      scrollViewRef.current?.scrollToEnd({ animated: true });
+    }, 250);
+  }, []);
+
+  useEffect(() => {
+    const showSub = Keyboard.addListener(
+      Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow",
+      (e) => {
+        const kbHeight = e.endCoordinates?.height || 280;
+        setKeyboardPadding(kbHeight + 60);
+      },
+    );
+    const hideSub = Keyboard.addListener(
+      Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide",
+      () => {
+        setKeyboardPadding(60);
+      },
+    );
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
 
   // Form Fields
   const [projectName, setProjectName] = useState("");
@@ -249,7 +278,6 @@ export default function CreateLeadScreen() {
         timeout: 20000,
       })
       .then((res) => {
-        console.log("MIX DES:", res.data);
         if (isCancelled) return;
         const list = res.data?.data?.data || res.data?.data || [];
 
@@ -418,16 +446,11 @@ export default function CreateLeadScreen() {
       project_name: projectName.trim(),
     };
 
-    console.log("CHECK PAYLOAD:", payload);
-
     try {
       const response = await axios.post(`${baseURL}v1/leads`, payload, {
         headers,
         timeout: 25000,
       });
-
-      console.log("CHECK RES:", response);
-
       if (response.data?.success) {
         Alert.alert(
           "Success",
@@ -519,7 +542,10 @@ export default function CreateLeadScreen() {
         <ScrollView
           ref={scrollViewRef}
           style={styles.container}
-          contentContainerStyle={[styles.scrollContent, { paddingBottom: 60 }]}
+          contentContainerStyle={[
+            styles.scrollContent,
+            { paddingBottom: keyboardPadding },
+          ]}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
@@ -620,8 +646,12 @@ export default function CreateLeadScreen() {
                     placeholder="9876543210"
                     placeholderTextColor="#94A3B8"
                     keyboardType="phone-pad"
+                    maxLength={10}
                     value={phone}
-                    onChangeText={setPhone}
+                    onChangeText={(val) => {
+                      const digits = val.replace(/\D/g, "").slice(0, 10);
+                      setPhone(digits);
+                    }}
                   />
                 </View>
               </View>
@@ -914,6 +944,7 @@ export default function CreateLeadScreen() {
                   placeholderTextColor="#94A3B8"
                   value={deliveryLocation}
                   onChangeText={setDeliveryLocation}
+                  onFocus={scrollToBottom}
                 />
               </View>
             </View>
@@ -934,6 +965,7 @@ export default function CreateLeadScreen() {
                   placeholderTextColor="#94A3B8"
                   value={address}
                   onChangeText={setAddress}
+                  onFocus={scrollToBottom}
                 />
               </View>
             </View>
@@ -949,6 +981,7 @@ export default function CreateLeadScreen() {
                 numberOfLines={3}
                 value={remarks}
                 onChangeText={setRemarks}
+                onFocus={scrollToBottom}
               />
             </View>
           </View>

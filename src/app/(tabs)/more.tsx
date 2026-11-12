@@ -69,6 +69,17 @@ export default function MoreScreen() {
 
   const gridItems: GridMenuItem[] = [
     {
+      id: "attendance",
+      title: "My Attendance",
+      subtitle: "Calendar & Shift Logs",
+      icon: "calendar-outline",
+      badge: "Calendar",
+      badgeColor: "#059669",
+      iconColor: "#059669",
+      iconBg: "#ECFDF5",
+      onPress: () => router.push("/attendancehistory"),
+    },
+    {
       id: "quotations",
       title: "Quotations",
       subtitle: "Create New Estimate",
@@ -94,7 +105,7 @@ export default function MoreScreen() {
       id: "batch",
       title: "Batch Schedules",
       subtitle: "Daily Plant Queue",
-      icon: "calendar-outline",
+      icon: "time-outline",
       badge: "8 Today",
       badgeColor: "#7C3AED",
       iconColor: "#7C3AED",
@@ -180,6 +191,35 @@ export default function MoreScreen() {
             </View>
           </View>
         </View>
+
+        {/* My Attendance Interactive Card */}
+        <TouchableOpacity
+          style={styles.attendanceActionCard}
+          onPress={() => router.push("/attendancehistory")}
+          activeOpacity={0.85}
+        >
+          <View style={styles.attendanceActionLeft}>
+            <View style={styles.attendanceActionIconWrap}>
+              <Ionicons name="calendar" size={22} color="#059669" />
+            </View>
+            <View style={styles.attendanceActionTextGroup}>
+              <View style={styles.attendanceActionTitleRow}>
+                <Text style={styles.attendanceActionTitle}>My Attendance</Text>
+                <View style={styles.attendanceActionBadge}>
+                  <View style={styles.actionGreenDot} />
+                  <Text style={styles.attendanceActionBadgeText}>CALENDAR</Text>
+                </View>
+              </View>
+              <Text style={styles.attendanceActionSubtitle} numberOfLines={1}>
+                View daily attendance calendar, green marks & logs
+              </Text>
+            </View>
+          </View>
+
+          <View style={styles.attendanceActionArrow}>
+            <Ionicons name="chevron-forward" size={18} color="#059669" />
+          </View>
+        </TouchableOpacity>
 
         {/* Quick Operational Grid Section */}
         <View style={styles.sectionHeader}>
@@ -307,7 +347,7 @@ const styles = StyleSheet.create({
     padding: 16,
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: 20,
+    marginBottom: 12,
     borderWidth: 1,
     borderColor: "#E2E8F0",
     shadowColor: "#000000",
@@ -372,6 +412,86 @@ const styles = StyleSheet.create({
     color: "#2563EB",
     fontWeight: "600",
     flex: 1,
+  },
+  // My Attendance Action Card
+  attendanceActionCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 16,
+    padding: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    shadowColor: "#059669",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  attendanceActionLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    flex: 1,
+  },
+  attendanceActionIconWrap: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: "#ECFDF5",
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 12,
+  },
+  attendanceActionTextGroup: {
+    flex: 1,
+  },
+  attendanceActionTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 2,
+  },
+  attendanceActionTitle: {
+    fontSize: 15,
+    fontWeight: "800",
+    color: "#0F172A",
+  },
+  attendanceActionBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "#ECFDF5",
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  actionGreenDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
+    backgroundColor: "#10B981",
+  },
+  attendanceActionBadgeText: {
+    fontSize: 9,
+    fontWeight: "800",
+    color: "#059669",
+    letterSpacing: 0.5,
+  },
+  attendanceActionSubtitle: {
+    fontSize: 11,
+    color: "#64748B",
+    marginTop: 1,
+  },
+  attendanceActionArrow: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: "#F0FDF4",
+    justifyContent: "center",
+    alignItems: "center",
+    marginLeft: 8,
   },
   sectionHeader: {
     marginBottom: 10,

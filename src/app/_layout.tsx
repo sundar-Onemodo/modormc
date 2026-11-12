@@ -71,6 +71,11 @@ function AppLayout() {
                 name="shocustomerlist"
                 options={{ statusBarStyle: "light" }}
               />,
+              <Stack.Screen
+                key="attendancehistory"
+                name="attendancehistory"
+                options={{ statusBarStyle: "light" }}
+              />,
             ]
           ) : (
             <Stack.Screen name="login" options={{ gestureEnabled: false }} />

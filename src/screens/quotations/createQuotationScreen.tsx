@@ -1,11 +1,12 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import axios from "axios";
 import { router, useFocusEffect } from "expo-router";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
   FlatList,
+  Keyboard,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -158,6 +159,9 @@ export default function CreateQuotationScreen({
     "Delivery subject to schedule confirmation",
   );
 
+  const scrollViewRef = useRef<ScrollView>(null);
+  const [keyboardPadding, setKeyboardPadding] = useState<number>(40);
+
   const reduxPumpTypes = useSelector(selectPumpTypes) ?? [
     "direct_pour",
     "boom_pump",
@@ -173,6 +177,35 @@ export default function CreateQuotationScreen({
       .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
       .join(" ");
   };
+
+  const scrollToBottom = useCallback(() => {
+    setTimeout(() => {
+      scrollViewRef.current?.scrollToEnd({ animated: true });
+    }, 100);
+    setTimeout(() => {
+      scrollViewRef.current?.scrollToEnd({ animated: true });
+    }, 250);
+  }, []);
+
+  useEffect(() => {
+    const showSub = Keyboard.addListener(
+      Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow",
+      (e) => {
+        const kbHeight = e.endCoordinates?.height || 280;
+        setKeyboardPadding(kbHeight + 60);
+      },
+    );
+    const hideSub = Keyboard.addListener(
+      Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide",
+      () => {
+        setKeyboardPadding(40);
+      },
+    );
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
 
   useFocusEffect(
     useCallback(() => {
@@ -924,8 +957,12 @@ export default function CreateQuotationScreen({
         behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
         <ScrollView
+          ref={scrollViewRef}
           style={styles.container}
-          contentContainerStyle={styles.scrollContent}
+          contentContainerStyle={[
+            styles.scrollContent,
+            { paddingBottom: keyboardPadding },
+          ]}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         >
@@ -1215,6 +1252,7 @@ export default function CreateQuotationScreen({
               numberOfLines={4}
               value={notes}
               onChangeText={setNotes}
+              onFocus={scrollToBottom}
               placeholder="Delivery schedule, special pumping terms, site access..."
               placeholderTextColor="#94A3B8"
             />
@@ -1251,6 +1289,7 @@ export default function CreateQuotationScreen({
                   keyboardType="decimal-pad"
                   value={adjustment}
                   onChangeText={setAdjustment}
+                  onFocus={scrollToBottom}
                   placeholder="0.00"
                   placeholderTextColor="#94A3B8"
                 />

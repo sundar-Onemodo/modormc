@@ -2,11 +2,12 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import MaterialCommunityIcons from "@expo/vector-icons/MaterialCommunityIcons";
 import axios from "axios";
 import { router, useLocalSearchParams } from "expo-router";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
   FlatList,
+  Keyboard,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -60,8 +61,6 @@ export interface MixDesignDropdownItem {
   rate_per_qty?: string;
   concrete_grade_id?: number;
 }
-
-
 
 const PRIORITY_OPTIONS: {
   label: string;
@@ -131,9 +130,6 @@ function formatDateFriendly(dateStr?: string): string {
   }
 }
 
-
-
-
 // ==========================================
 // MAIN EDIT LEAD SCREEN COMPONENT
 // ==========================================
@@ -157,6 +153,36 @@ export default function EditLeadScreen({
   );
 
   const scrollViewRef = useRef<ScrollView>(null);
+  const [keyboardPadding, setKeyboardPadding] = useState<number>(60);
+
+  const scrollToBottom = useCallback(() => {
+    setTimeout(() => {
+      scrollViewRef.current?.scrollToEnd({ animated: true });
+    }, 100);
+    setTimeout(() => {
+      scrollViewRef.current?.scrollToEnd({ animated: true });
+    }, 250);
+  }, []);
+
+  useEffect(() => {
+    const showSub = Keyboard.addListener(
+      Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow",
+      (e) => {
+        const kbHeight = e.endCoordinates?.height || 280;
+        setKeyboardPadding(kbHeight + 60);
+      },
+    );
+    const hideSub = Keyboard.addListener(
+      Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide",
+      () => {
+        setKeyboardPadding(60);
+      },
+    );
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
 
   // Screen State
   const [loadingDetail, setLoadingDetail] = useState<boolean>(() =>
@@ -196,7 +222,9 @@ export default function EditLeadScreen({
   const [mixSearch, setMixSearch] = useState<string>("");
 
   // Selected Mix Design: Store both ID and Name
-  const [selectedMixDesignId, setSelectedMixDesignId] = useState<number | null>(null);
+  const [selectedMixDesignId, setSelectedMixDesignId] = useState<number | null>(
+    null,
+  );
   const [selectedMixDesignName, setSelectedMixDesignName] =
     useState<string>("");
 
@@ -260,7 +288,9 @@ export default function EditLeadScreen({
       .catch((err) => {
         if (isCancelled) return;
         if (err?.response?.status === 429) {
-          console.log("Mix designs rate limited (429); utilizing cached designs.");
+          console.log(
+            "Mix designs rate limited (429); utilizing cached designs.",
+          );
         } else {
           console.warn("Could not load live mix designs:", err?.message || err);
         }
@@ -320,7 +350,8 @@ export default function EditLeadScreen({
         setProjectName(lead.project_name || "");
         setContactName(lead.contact_name || "");
         setCompanyName(lead.company_name || "");
-        setPhone(lead.phone || "");
+        const rawPhone = String(lead.phone || "").replace(/\D/g, "");
+        setPhone(rawPhone.length > 10 ? rawPhone.slice(-10) : rawPhone);
         setEmail(lead.email || "");
         if (lead.enquiry_date) setEnquiryDate(lead.enquiry_date);
 
@@ -397,7 +428,10 @@ export default function EditLeadScreen({
         if (resolvedName) setSelectedMixDesignName(resolvedName);
 
         // Estimated Quantity & Expected Value
-        if (lead.estimated_quantity !== undefined && lead.estimated_quantity !== null) {
+        if (
+          lead.estimated_quantity !== undefined &&
+          lead.estimated_quantity !== null
+        ) {
           setEstimatedQuantity(String(lead.estimated_quantity));
         }
         if (lead.expected_value !== undefined && lead.expected_value !== null) {
@@ -482,8 +516,6 @@ export default function EditLeadScreen({
     setCalendarModalVisible(false);
   };
 
-
-
   // 3. Submit Updated Lead (PUT v1/leads/{lead})
   const handleUpdateLead = async () => {
     if (!projectName.trim()) {
@@ -558,12 +590,6 @@ export default function EditLeadScreen({
       addrress: resolvedAddress,
       project_name: projectName.trim(),
     };
-
-    console.log("==========================================");
-    console.log("[EDIT LEAD] Updating Lead ID:", activeLeadId);
-    console.log("[EDIT LEAD] Payload:", JSON.stringify(payload, null, 2));
-    console.log("==========================================");
-
     try {
       const response = await axios.put(
         `${baseURL}v1/leads/${activeLeadId}`,
@@ -574,8 +600,6 @@ export default function EditLeadScreen({
           timeout: 25000,
         },
       );
-
-      console.log("[EDIT LEAD] Response:", response.data);
 
       if (response.data?.success) {
         Alert.alert(
@@ -603,7 +627,10 @@ export default function EditLeadScreen({
     } catch (err: any) {
       console.warn("Update Lead Error Status:", err?.response?.status);
       console.warn("Update Lead Error:", err?.message || err);
-      console.warn("Update Lead Response Data:", JSON.stringify(err?.response?.data));
+      console.warn(
+        "Update Lead Response Data:",
+        JSON.stringify(err?.response?.data),
+      );
 
       let serverMessage =
         err?.response?.data?.message ||
@@ -611,7 +638,10 @@ export default function EditLeadScreen({
         err?.message ||
         "Could not update lead on server.";
 
-      if (err?.response?.data?.errors && typeof err.response.data.errors === "object") {
+      if (
+        err?.response?.data?.errors &&
+        typeof err.response.data.errors === "object"
+      ) {
         const errorList = Object.entries(err.response.data.errors)
           .map(([k, v]) => `• ${k}: ${Array.isArray(v) ? v.join(", ") : v}`)
           .join("\n");
@@ -675,7 +705,7 @@ export default function EditLeadScreen({
             style={styles.container}
             contentContainerStyle={[
               styles.scrollContent,
-              { paddingBottom: 60 },
+              { paddingBottom: keyboardPadding },
             ]}
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
@@ -756,7 +786,11 @@ export default function EditLeadScreen({
                     value={companyName}
                     editable={false}
                   />
-                  <Ionicons name="lock-closed-outline" size={14} color="#94A3B8" />
+                  <Ionicons
+                    name="lock-closed-outline"
+                    size={14}
+                    color="#94A3B8"
+                  />
                 </View>
               </View>
 
@@ -764,7 +798,10 @@ export default function EditLeadScreen({
               <View style={styles.twoColRow}>
                 <View style={[styles.fieldGroup, { flex: 1 }]}>
                   <Text style={styles.fieldLabel}>
-                    PHONE NUMBER {!email.trim() ? <Text style={styles.requiredStar}>*</Text> : null}
+                    PHONE NUMBER{" "}
+                    {!email.trim() ? (
+                      <Text style={styles.requiredStar}>*</Text>
+                    ) : null}
                   </Text>
                   <View style={styles.inputBox}>
                     <Ionicons
@@ -778,15 +815,22 @@ export default function EditLeadScreen({
                       placeholder="9876543210"
                       placeholderTextColor="#94A3B8"
                       keyboardType="phone-pad"
+                      maxLength={10}
                       value={phone}
-                      onChangeText={setPhone}
+                      onChangeText={(val) => {
+                        const digits = val.replace(/\D/g, "").slice(0, 10);
+                        setPhone(digits);
+                      }}
                     />
                   </View>
                 </View>
 
                 <View style={[styles.fieldGroup, { flex: 1 }]}>
                   <Text style={styles.fieldLabel}>
-                    EMAIL ADDRESS {!phone.trim() ? <Text style={styles.requiredStar}>*</Text> : null}
+                    EMAIL ADDRESS{" "}
+                    {!phone.trim() ? (
+                      <Text style={styles.requiredStar}>*</Text>
+                    ) : null}
                   </Text>
                   <View style={styles.inputBox}>
                     <Ionicons
@@ -807,7 +851,14 @@ export default function EditLeadScreen({
                   </View>
                 </View>
               </View>
-              <Text style={{ fontSize: 11, color: "#64748B", marginTop: -6, marginBottom: 8 }}>
+              <Text
+                style={{
+                  fontSize: 11,
+                  color: "#64748B",
+                  marginTop: -6,
+                  marginBottom: 8,
+                }}
+              >
                 * Either Phone number or Email is required
               </Text>
             </View>
@@ -824,7 +875,9 @@ export default function EditLeadScreen({
               <View style={styles.twoColRow}>
                 {/* 1. Priority Dropdown */}
                 <View style={[styles.fieldGroup, { flex: 1 }]}>
-                  <Text style={styles.fieldLabel} numberOfLines={1}>PRIORITY</Text>
+                  <Text style={styles.fieldLabel} numberOfLines={1}>
+                    PRIORITY
+                  </Text>
                   <TouchableOpacity
                     style={styles.dropdownTriggerCompact}
                     onPress={() => setClassificationPicker("priority")}
@@ -842,7 +895,10 @@ export default function EditLeadScreen({
                           marginRight: 5,
                         }}
                       />
-                      <Text style={styles.dropdownTriggerTextCompact} numberOfLines={1}>
+                      <Text
+                        style={styles.dropdownTriggerTextCompact}
+                        numberOfLines={1}
+                      >
                         {priority}
                       </Text>
                     </View>
@@ -852,7 +908,9 @@ export default function EditLeadScreen({
 
                 {/* 2. Lead Source Dropdown */}
                 <View style={[styles.fieldGroup, { flex: 1 }]}>
-                  <Text style={styles.fieldLabel} numberOfLines={1}>SOURCE</Text>
+                  <Text style={styles.fieldLabel} numberOfLines={1}>
+                    SOURCE
+                  </Text>
                   <TouchableOpacity
                     style={styles.dropdownTriggerCompact}
                     onPress={() => setClassificationPicker("source")}
@@ -868,7 +926,10 @@ export default function EditLeadScreen({
                         color="#2563EB"
                         style={{ marginRight: 4 }}
                       />
-                      <Text style={styles.dropdownTriggerTextCompact} numberOfLines={1}>
+                      <Text
+                        style={styles.dropdownTriggerTextCompact}
+                        numberOfLines={1}
+                      >
                         {source}
                       </Text>
                     </View>
@@ -888,14 +949,15 @@ export default function EditLeadScreen({
                   size={16}
                   color="#2563EB"
                 />
-                <Text style={styles.cardSectionTitle}>Concrete Requirement</Text>
+                <Text style={styles.cardSectionTitle}>
+                  Concrete Requirement
+                </Text>
               </View>
 
               {/* Mix Design Dropdown from API: Sends Mix Design ID */}
               <View style={styles.fieldGroup}>
                 <Text style={styles.fieldLabel}>
-                  CONCRETE MIX DESIGN{" "}
-                  <Text style={styles.requiredStar}>*</Text>
+                  CONCRETE MIX DESIGN <Text style={styles.requiredStar}>*</Text>
                 </Text>
                 <TouchableOpacity
                   style={styles.dropdownTrigger}
@@ -956,7 +1018,8 @@ export default function EditLeadScreen({
               <View style={styles.twoColRow}>
                 <View style={[styles.fieldGroup, { flex: 1 }]}>
                   <Text style={styles.fieldLabel}>
-                    EST. QUANTITY (m³) <Text style={styles.requiredStar}>*</Text>
+                    EST. QUANTITY (m³){" "}
+                    <Text style={styles.requiredStar}>*</Text>
                   </Text>
                   <View style={styles.inputBox}>
                     <MaterialCommunityIcons
@@ -1000,7 +1063,8 @@ export default function EditLeadScreen({
               {/* Expected Purchase Date: Interactive Date Picker with Calendar Icon */}
               <View style={styles.fieldGroup}>
                 <Text style={styles.fieldLabel}>
-                  EXPECTED PURCHASE DATE <Text style={styles.requiredStar}>*</Text>
+                  EXPECTED PURCHASE DATE{" "}
+                  <Text style={styles.requiredStar}>*</Text>
                 </Text>
                 <TouchableOpacity
                   style={styles.datePickerBtn}
@@ -1022,7 +1086,11 @@ export default function EditLeadScreen({
                   </View>
                   <View style={styles.datePickerIconRight}>
                     <Text style={styles.changeDateLabel}>Change Date</Text>
-                    <Ionicons name="chevron-forward" size={14} color="#2563EB" />
+                    <Ionicons
+                      name="chevron-forward"
+                      size={14}
+                      color="#2563EB"
+                    />
                   </View>
                 </TouchableOpacity>
               </View>
@@ -1059,7 +1127,11 @@ export default function EditLeadScreen({
                     value={deliveryLocation}
                     editable={false}
                   />
-                  <Ionicons name="lock-closed-outline" size={14} color="#94A3B8" />
+                  <Ionicons
+                    name="lock-closed-outline"
+                    size={14}
+                    color="#94A3B8"
+                  />
                 </View>
               </View>
 
@@ -1079,6 +1151,7 @@ export default function EditLeadScreen({
                     placeholderTextColor="#94A3B8"
                     value={address}
                     onChangeText={setAddress}
+                    onFocus={scrollToBottom}
                   />
                 </View>
               </View>
@@ -1094,6 +1167,7 @@ export default function EditLeadScreen({
                   numberOfLines={3}
                   value={remarks}
                   onChangeText={setRemarks}
+                  onFocus={scrollToBottom}
                 />
               </View>
             </View>
@@ -1179,7 +1253,10 @@ export default function EditLeadScreen({
             {/* List options */}
             <ScrollView
               style={{ maxHeight: 380 }}
-              contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 24 }}
+              contentContainerStyle={{
+                paddingHorizontal: 16,
+                paddingBottom: 24,
+              }}
             >
               {classificationPicker === "priority" &&
                 PRIORITY_OPTIONS.map((opt) => {

@@ -1,11 +1,12 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import axios from "axios";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
   FlatList,
+  Keyboard,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -22,7 +23,10 @@ import { useDispatch, useSelector } from "react-redux";
 import { baseURL } from "../../../baseurl/baseURL";
 import { selectPumpTypes } from "../../../store/dropdownSlice";
 import {
+  calculateLineItemTotals,
+  calculateQuotationTotals,
   CustomerDropdownItem,
+  LineItemCalculationResult,
   setCustomers,
   setMixDesigns,
   setSelectedCustomer,
@@ -30,9 +34,6 @@ import {
   setSites,
   setTaxes,
   SiteDropdownItem,
-  calculateLineItemTotals,
-  calculateQuotationTotals,
-  LineItemCalculationResult,
 } from "../../../store/quotationSlice";
 import { RootState } from "../../../store/store";
 
@@ -136,9 +137,9 @@ export default function EditQuotationScreen({
   const params = useLocalSearchParams<{ quotation_id?: string; id?: string }>();
   const quotationId = propQuotationId ?? params.quotation_id ?? params.id;
 
-  const [storedQuotationId, setStoredQuotationId] = useState<number | string | null>(
-    quotationId ?? null,
-  );
+  const [storedQuotationId, setStoredQuotationId] = useState<
+    number | string | null
+  >(quotationId ?? null);
   const [storedPatronId, setStoredPatronId] = useState<number | null>(null);
   const [quotationReference, setQuotationReference] = useState<string>("");
   const [loadingDetail, setLoadingDetail] = useState<boolean>(true);
@@ -146,8 +147,6 @@ export default function EditQuotationScreen({
   const { token, plant_id, plant_name } = useSelector(
     (state: RootState) => state.auth,
   );
-
-  console.log("TOKEN:", token);
 
   // Redux state for dropdown caches
   const cachedCustomers = useSelector(
@@ -176,14 +175,16 @@ export default function EditQuotationScreen({
     "Delivery subject to schedule confirmation",
   );
 
-  const reduxPumpTypes =
-    useSelector(selectPumpTypes) ?? [
-      "direct_pour",
-      "boom_pump",
-      "line_pump",
-      "crane_bucket",
-      "stationary_pump",
-    ];
+  const scrollViewRef = useRef<ScrollView>(null);
+  const [keyboardPadding, setKeyboardPadding] = useState<number>(40);
+
+  const reduxPumpTypes = useSelector(selectPumpTypes) ?? [
+    "direct_pour",
+    "boom_pump",
+    "line_pump",
+    "crane_bucket",
+    "stationary_pump",
+  ];
 
   const formatPumpLabel = (val?: string | null) => {
     if (!val) return "";
@@ -192,6 +193,35 @@ export default function EditQuotationScreen({
       .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
       .join(" ");
   };
+
+  const scrollToBottom = useCallback(() => {
+    setTimeout(() => {
+      scrollViewRef.current?.scrollToEnd({ animated: true });
+    }, 100);
+    setTimeout(() => {
+      scrollViewRef.current?.scrollToEnd({ animated: true });
+    }, 250);
+  }, []);
+
+  useEffect(() => {
+    const showSub = Keyboard.addListener(
+      Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow",
+      (e) => {
+        const kbHeight = e.endCoordinates?.height || 280;
+        setKeyboardPadding(kbHeight + 60);
+      },
+    );
+    const hideSub = Keyboard.addListener(
+      Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide",
+      () => {
+        setKeyboardPadding(40);
+      },
+    );
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
 
   useFocusEffect(
     useCallback(() => {
@@ -468,10 +498,6 @@ export default function EditQuotationScreen({
           headers["X-Plant-Id"] = String(plant_id);
         }
 
-        console.log(
-          `[QuotationsViewAPI] Fetching quotation details for ID: ${quotationId}`,
-        );
-
         let res;
         try {
           res = await axios.get(`${baseURL}v1/quotations/${quotationId}`, {
@@ -484,9 +510,6 @@ export default function EditQuotationScreen({
             pathErr?.response?.status === 404 ||
             pathErr?.response?.status === 405
           ) {
-            console.log(
-              "[QuotationsViewAPI] Fallback to ?quotation_id= parameter",
-            );
             res = await axios.get(`${baseURL}v1/quotations`, {
               params: { quotation_id: String(quotationId) },
               headers,
@@ -499,15 +522,9 @@ export default function EditQuotationScreen({
 
         if (isCancelled) return;
 
-        console.log("[QuotationsViewAPI] Raw response:", res?.data);
-
         // The Curie RMC API returns { success: true, data: { ... } } or { data: { ... } }
         const quoteData = res?.data?.data || res?.data;
         if (quoteData) {
-          console.log(
-            "[QuotationsViewAPI] Successfully loaded quotation data:",
-            quoteData,
-          );
           if (quoteData.id) {
             setStoredQuotationId(quoteData.id);
           }
@@ -699,7 +716,8 @@ export default function EditQuotationScreen({
         parseFloat(field === "quantity" ? value : target.quantity) || 0;
       const rateNum = parseFloat(field === "rate" ? value : target.rate) || 0;
       const pumpRateNum =
-        parseFloat(field === "pump_rate" ? value : target.pump_rate || "0") || 0;
+        parseFloat(field === "pump_rate" ? value : target.pump_rate || "0") ||
+        0;
       const taxRateNum =
         field === "tax_rate" ? Number(value) : target.tax_rate || 0;
 
@@ -1088,12 +1106,6 @@ export default function EditQuotationScreen({
     }
 
     try {
-      // Edit API call: update quotation via PUT /v1/quotations/:id
-      console.log(
-        `[Update Quotation] Updating quotation #${activeQuotationId} with payload:`,
-        payload,
-      );
-
       let updateRes;
       try {
         updateRes = await axios.put(
@@ -1124,15 +1136,11 @@ export default function EditQuotationScreen({
               },
             );
           } catch {
-            updateRes = await axios.put(
-              `${baseURL}v1/quotations`,
-              payload,
-              {
-                params: { quotation_id: String(activeQuotationId) },
-                headers,
-                timeout: 30000,
-              },
-            );
+            updateRes = await axios.put(`${baseURL}v1/quotations`, payload, {
+              params: { quotation_id: String(activeQuotationId) },
+              headers,
+              timeout: 30000,
+            });
           }
         } else {
           throw putErr;
@@ -1207,8 +1215,12 @@ export default function EditQuotationScreen({
           behavior={Platform.OS === "ios" ? "padding" : undefined}
         >
           <ScrollView
+            ref={scrollViewRef}
             style={styles.container}
-            contentContainerStyle={styles.scrollContent}
+            contentContainerStyle={[
+              styles.scrollContent,
+              { paddingBottom: keyboardPadding },
+            ]}
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
           >
@@ -1407,7 +1419,11 @@ export default function EditQuotationScreen({
                         <Text style={styles.dropdownText} numberOfLines={1}>
                           {formatPumpLabel(item.concrete_pump) || "Select Pump"}
                         </Text>
-                        <Ionicons name="chevron-down" size={18} color="#64748B" />
+                        <Ionicons
+                          name="chevron-down"
+                          size={18}
+                          color="#64748B"
+                        />
                       </TouchableOpacity>
                     </View>
 
@@ -1433,7 +1449,10 @@ export default function EditQuotationScreen({
                         Material Untaxed
                       </Text>
                       <Text style={styles.lineItemCalcValue}>
-                        ₹{formatAmountWithDecimals(item.calculation.untaxedAmount)}
+                        ₹
+                        {formatAmountWithDecimals(
+                          item.calculation.untaxedAmount,
+                        )}
                       </Text>
                     </View>
                     <View style={{ alignItems: "center" }}>
@@ -1449,7 +1468,8 @@ export default function EditQuotationScreen({
                         Item Total
                       </Text>
                       <Text style={styles.lineItemCalcValueTotal}>
-                        ₹{formatAmountWithDecimals(item.calculation.amountTotal)}
+                        ₹
+                        {formatAmountWithDecimals(item.calculation.amountTotal)}
                       </Text>
                     </View>
                   </View>
@@ -1497,6 +1517,7 @@ export default function EditQuotationScreen({
                 numberOfLines={4}
                 value={notes}
                 onChangeText={setNotes}
+                onFocus={scrollToBottom}
                 placeholder="Delivery schedule, special pumping terms, site access..."
                 placeholderTextColor="#94A3B8"
               />
@@ -1516,7 +1537,9 @@ export default function EditQuotationScreen({
               </View>
 
               <View style={styles.totalEstimateRow}>
-                <Text style={styles.totalEstimateRowLabel}>Total Taxes (+)</Text>
+                <Text style={styles.totalEstimateRowLabel}>
+                  Total Taxes (+)
+                </Text>
                 <Text style={styles.totalEstimateRowValue}>
                   ₹{formatAmountWithDecimals(totalSummary.taxAmount)}
                 </Text>
@@ -1533,6 +1556,7 @@ export default function EditQuotationScreen({
                     keyboardType="decimal-pad"
                     value={adjustment}
                     onChangeText={setAdjustment}
+                    onFocus={scrollToBottom}
                     placeholder="0.00"
                     placeholderTextColor="#94A3B8"
                   />
